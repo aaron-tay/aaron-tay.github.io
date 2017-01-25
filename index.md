@@ -1,37 +1,27 @@
-## Welcome to GitHub Pages
+## Welcome aaron-tay.github.io
 
-You can use the [editor on GitHub](https://github.com/aaron-tay/aaron-tay.github.io/edit/master/index.md) to maintain and preview the content for your website in Markdown files.
+I'm a full-stack software engineer with experiences throughout the entire web stack.
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+### About me 
+I enjoy drinking tea (Houji-cha is my favourite) and eating Japanese food (especially Tonkatsu!). Occasionally I indulge in saké, but can't have too much as it makes me go red *blush* :P
 
-### Markdown
+### What I know
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+I have experience working with early-stage start-ups from pre-conception to product ideation into early stage maturity. It's been a fantastic journey learning about the delicate balances amongst engineering, product, marketing and sales. The primary industry has been food and drinks and the service industry.
 
-```markdown
-Syntax highlighted code block
+There's been plenty of opportunities for me over the years to work with numerous technologies along the web stack going as deep down as database schema and queries, through to RESTful APIs and server fleet deployment and management using automated builds and deployment, cross platform client-side front end applications up to business level user tracking and analytics.
 
-# Header 1
-## Header 2
-### Header 3
+### Places I've worked at
 
-- Bulleted
-- List
+[Hey You](https://heyyou.com.au)
+[Posse](https://posse.com) (now heyyou.com.au)
+[BeatTheQ](https://www.beattheq.com) (now heyyou.com.au)
+[Altium](http://www.altium.com/)
 
-1. Numbered
-2. List
+### Keywords (cos these attract people and SEO bots) - but also stuff I know ;)
 
-**Bold** and _Italic_ and `Code` text
+NodeJS, Javascript, ES6, AngularJS, React, VueJS, MDL, jQuery, Bootstrap, HTML, CSS, SASS, LESS, AWS, Objective-C, Java, PHP, Jenkins, BuildKite, mySQL, Redis, Firebase, Fabric.io, NewRelic, PagerDuty, StatusPage, Atlassian, BitBucket, GitHub, G-Suite, SketchApp, REST, API, PlayFramework, POS, Continuous Integration (CI), Continuous Delivery (CD)
 
-[Link](url) and ![Image](src)
-```
+### Thanks for visiting :)
 
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
-
-### Jekyll Themes
-
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/aaron-tay/aaron-tay.github.io/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
-
-### Support or Contact
-
-Having trouble with Pages? Check out our [documentation](https://help.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+Visit my GitHub profile and send me an email :)
