@@ -11,16 +11,16 @@ I have experience working with early-stage start-ups from pre-conception to prod
 
 There's been plenty of opportunities for me over the years to work with numerous technologies along the web stack going as deep down as database schema and queries, through to RESTful APIs and server fleet deployment and management using automated builds and deployment, cross platform client-side front end applications up to business level user tracking and analytics.
 
-### Places I've worked at
+### Where I've been
 
-[Hey You](https://heyyou.com.au)
-[Posse](https://posse.com) (now heyyou.com.au)
-[BeatTheQ](https://www.beattheq.com) (now heyyou.com.au)
-[Altium](http://www.altium.com/)
+* [Hey You](https://heyyou.com.au) - Discover nearby cafes, order and pay for your food or drink and collect loyalty rewards.
+* [BeatTheQ](https://www.beattheq.com) (now heyyou.com.au) - Pre-order and pay for your coffee online.
+* [Posse](https://posse.com) (now heyyou.com.au) - Discover nearby areas and organise your favourite places.
+* [Altium](http://www.altium.com/) - PCB design software
 
 ### Keywords (cos these attract people and SEO bots) - but also stuff I know ;)
 
-NodeJS, Javascript, ES6, AngularJS, React, VueJS, MDL, jQuery, Bootstrap, HTML, CSS, SASS, LESS, AWS, Objective-C, Java, PHP, Jenkins, BuildKite, mySQL, Redis, Firebase, Fabric.io, NewRelic, PagerDuty, StatusPage, Atlassian, BitBucket, GitHub, G-Suite, SketchApp, REST, API, PlayFramework, POS, Continuous Integration (CI), Continuous Delivery (CD)
+NodeJS, Javascript, ES6, AngularJS, React, VueJS, MDL, jQuery, Bootstrap, HTML, CSS, SASS, LESS, AWS, Objective-C, Java, PHP, Jenkins, BuildKite, mySQL, Redis, Firebase, Fabric.io, NewRelic, PagerDuty, StatusPage, Atlassian, BitBucket, GitHub, G-Suite, SketchApp, REST, API, PlayFramework, POS, Continuous Integration (CI), Continuous Delivery (CD), Mixpanel, Google Analytics, 
 
 ### Thanks for visiting :)
 
