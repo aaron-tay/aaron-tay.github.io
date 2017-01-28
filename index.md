@@ -18,6 +18,11 @@ There's been plenty of opportunities for me over the years to work with numerous
 * [Posse](https://posse.com) (now heyyou.com.au) - Discover nearby areas and organise your favourite places.
 * [Altium](http://www.altium.com/) - PCB design software
 
+### Random stuff I've made
+
+* [Photo Finder](https://aaron-tay.github.io/photoAlbum.html) A simple ImgurAPI experiment to find photos.
+
+
 ### Keywords (cos these attract people and SEO bots) - but also stuff I know ;)
 
 NodeJS, Javascript, ES6, AngularJS, React, VueJS, MDL, jQuery, Bootstrap, HTML, CSS, SASS, LESS, AWS, Objective-C, Java, PHP, Jenkins, BuildKite, mySQL, Redis, Firebase, Fabric.io, NewRelic, PagerDuty, StatusPage, Atlassian, BitBucket, GitHub, G-Suite, SketchApp, REST, API, PlayFramework, POS, Continuous Integration (CI), Continuous Delivery (CD), Mixpanel, Google Analytics,
