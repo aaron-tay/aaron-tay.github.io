@@ -41,6 +41,9 @@
                 </p>
               </div>
             </div>
+            <div class="mdl-cell mdl-cell--12-col">
+              {{ images }}
+            </div>
           </div>
         </main>
       </div>
@@ -49,5 +52,37 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.1.10/vue.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/superagent/3.3.2/superagent.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.4/lodash.min.js"></script>
+    <script>
+    const IMGUR_CLIENT_ID = '49e246bf973b316';
+    var app = new Vue({
+      el: '#the-photo-album-app',
+      data: {
+        searchTag: 'coffee',
+        images: [],
+      },
+      created() {
+        this.fetchPhotosMatchingTag(this.searchTag);
+      },
+      methods: {
+        fetchPhotosMatchingTag(tag) {
+          const sort = 'viral';
+          const page = '0';
+          const url = `https://api.imgur.com/3/gallery/t/${tag}/${sort}/${page}`;
+          const self = this;
+          superagent.get(url)
+          .accept('application/json')
+          .set('Authorization', `Client-ID ${IMGUR_CLIENT_ID}`)
+          .end(function(error, response) {
+            if (error) {
+              console.log(error);
+              return;
+            }
+            const apiData = response.body.data;
+            self.images = _.take(apiData.items, 10);
+          });
+        },
+      },
+    });
+    </script>
   </body>
 </html>
