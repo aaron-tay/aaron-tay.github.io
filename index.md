@@ -2,8 +2,8 @@
 
 I'm a full-stack software engineer with experiences throughout the entire web stack.
 
-### About me 
-I enjoy drinking tea (Houji-cha is my favourite) and eating Japanese food (especially Tonkatsu!). Occasionally I indulge in saké, but can't have too much as it makes me go red *blush* :P
+### About me
+I enjoy drinking tea (Houji-cha is my favourite) and eating Japanese food (especially Tonkatsu!). Occasionally I indulge in saké, but can't have too much as it makes me go red (blush) :P
 
 ### What I know
 
@@ -20,7 +20,7 @@ There's been plenty of opportunities for me over the years to work with numerous
 
 ### Keywords (cos these attract people and SEO bots) - but also stuff I know ;)
 
-NodeJS, Javascript, ES6, AngularJS, React, VueJS, MDL, jQuery, Bootstrap, HTML, CSS, SASS, LESS, AWS, Objective-C, Java, PHP, Jenkins, BuildKite, mySQL, Redis, Firebase, Fabric.io, NewRelic, PagerDuty, StatusPage, Atlassian, BitBucket, GitHub, G-Suite, SketchApp, REST, API, PlayFramework, POS, Continuous Integration (CI), Continuous Delivery (CD), Mixpanel, Google Analytics, 
+NodeJS, Javascript, ES6, AngularJS, React, VueJS, MDL, jQuery, Bootstrap, HTML, CSS, SASS, LESS, AWS, Objective-C, Java, PHP, Jenkins, BuildKite, mySQL, Redis, Firebase, Fabric.io, NewRelic, PagerDuty, StatusPage, Atlassian, BitBucket, GitHub, G-Suite, SketchApp, REST, API, PlayFramework, POS, Continuous Integration (CI), Continuous Delivery (CD), Mixpanel, Google Analytics,
 
 ### Thanks for visiting :)
 
