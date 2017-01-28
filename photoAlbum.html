@@ -66,7 +66,7 @@
               <form class="search-bar" @submit.prevent="fetchPhotosMatchingTag(searchTag)">
                 <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label search-bar__textfield">
                   <input class="mdl-textfield__input" type="text" id="inputQuery" v-model="searchTag">
-                  <label class="mdl-textfield__label" for="inputQuery">Search for photos on Imgur</label>
+                  <label class="mdl-textfield__label" for="inputQuery">Search for photos on Imgur (try 'coffee')</label>
                 </div>
                 <div class="search-bar__button">
                   <button class="mdl-button mdl-js-button mdl-button--icon" id="search__execute">
@@ -103,11 +103,10 @@
     var app = new Vue({
       el: '#the-photo-album-app',
       data: {
-        searchTag: 'coffee',
+        searchTag: '',
         images: [],
       },
       created() {
-        this.fetchPhotosMatchingTag(this.searchTag);
       },
       methods: {
         fetchPhotosMatchingTag(tag) {
