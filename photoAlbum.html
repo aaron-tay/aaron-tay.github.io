@@ -10,6 +10,27 @@
 
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
     <link rel="stylesheet" href="https://code.getmdl.io/1.3.0/material.indigo-pink.min.css">
+    <style type="text/css">
+    .search-bar {
+      background-color: white;
+      border: 1px solid #ccc;
+      border-radius: 2px;
+      padding-left: 16px;
+      padding-right: 8px;
+      display: flex;
+      flex-direction: row;
+    }
+
+    .search-bar__textfield {
+      flex: 9;
+    }
+
+    .search-bar__button {
+      margin: 16px 0;
+      text-align: center;
+      flex: 1;
+    }
+    </style>
   </head>
   <body>
     <div id="the-photo-album-app">
@@ -40,6 +61,31 @@
                   </a>
                 </p>
               </div>
+            </div>
+            <div class="mdl-cell mdl-cell--12-col">
+              <form class="search-bar" @submit.prevent="fetchPhotosMatchingTag(searchTag)">
+                <div class="mdl-textfield mdl-js-textfield mdl-textfield--floating-label search-bar__textfield">
+                  <input class="mdl-textfield__input" type="text" id="inputQuery" v-model="searchTag">
+                  <label class="mdl-textfield__label" for="inputQuery">Search for photos on Imgur</label>
+                </div>
+                <div class="search-bar__button">
+                  <button class="mdl-button mdl-js-button mdl-button--icon" id="search__execute">
+                    <i class="material-icons">search</i>
+                  </button>
+                </div>
+                <div class="mdl-tooltip mdl-tooltip--left" for="search__execute">
+                  Search
+                </div>
+              </form>
+            </div>
+            <div class="mdl-cell mdl-cell--12-col">
+                <div class="mdl-grid">
+                  <template v-for="image in images">
+                    <div class="mdl-cell mdl-cell--2-col">
+                      <img :src="imageUrl(image)" width="100%" />
+                    </div>
+                </template>
+                </div>
             </div>
             <div class="mdl-cell mdl-cell--12-col">
               {{ images }}
@@ -80,6 +126,12 @@
             const apiData = response.body.data;
             self.images = _.take(apiData.items, 10);
           });
+        },
+        imageUrl(image) {
+          if (image.is_album) {
+            return `http://i.imgur.com/${image.cover}.png`;
+          }
+          return image.link;
         },
       },
     });
