@@ -30,6 +30,34 @@
       text-align: center;
       flex: 1;
     }
+
+    .feed-card {
+      width: 100%;
+      max-height: 200px;
+      overflow: hidden;
+      background-color: #efefef;
+      display: flex;
+      flex-direction: column;
+      align-content: center;
+      justify-content: center;
+    }
+
+    .mdl-card__media {
+      position: relative;
+      text-align: center;
+    }
+
+    .media--flexible.mdl-card__media > .media__image {
+      flex-grow: 1;
+      display: block;
+      position: relative;
+      top: inherit;
+      bottom: inherit;
+      left: inherit;
+      right: inherit;
+      width: 100%;
+      max-width: 100%;
+    }
     </style>
   </head>
   <body>
@@ -40,10 +68,7 @@
             <span class="mdl-layout-title">Photo Album</span>
             <div class="mdl-layout-spacer"></div>
             <nav class="mdl-navigation mdl-layout--large-screen-only">
-              <a class="mdl-navigation__link" href="">Link</a>
-              <a class="mdl-navigation__link" href="">Link</a>
-              <a class="mdl-navigation__link" href="">Link</a>
-              <a class="mdl-navigation__link" href="">Link</a>
+              <a class="mdl-navigation__link" href="https://aaron-tay.github.io/">by aaron-tay</a>
             </nav>
           </div>
         </header>
@@ -58,6 +83,19 @@
                   This is a basic photo album leveraging the
                   <a href="https://api.imgur.com/" target="_blank">
                     Imgur API <span class="material-icons">open_in_new</span>
+                  </a>.
+                </p>
+                <p>
+                  This page was constructed using
+                  <a href="https://vuejs.org/" target="_blank">VueJS</a>,
+                  <a href="https://getmdl.io" target="_blank">MDL</a>,
+                  <a href="https://lodash.com" target="_blank">Lodash</a> and
+                  <a href="https://github.com/visionmedia/superagent" target="_blank">Superagent</a>
+                </p>
+                <p>
+                  If you're interested in the source. Visit my
+                  <a href="https://github.com/aaron-tay/aaron-tay.github.io">
+                    GitHub
                   </a>
                 </p>
               </div>
@@ -79,13 +117,23 @@
               </form>
             </div>
             <div class="mdl-cell mdl-cell--12-col">
-                <div class="mdl-grid">
-                  <template v-for="image in images">
-                    <div class="mdl-cell mdl-cell--2-col">
-                      <img :src="imageUrl(image)" width="100%" />
+              <div class="mdl-grid">
+                <template v-for="image in images">
+                  <div class="mdl-cell mdl-cell--2-col">
+                    <div class="feed-card mdl-card mdl-shadow--2dp">
+                      <div class="mdl-card__media media--flexible">
+                        <img class="media__image" :src="imageUrl(image)" />
+                      </div>
                     </div>
+                    <!-- <img :src="imageUrl(image)" width="100%" /> -->
+                  </div>
                 </template>
-                </div>
+              </div>
+            </div>
+            <div class="mdl-cell mdl-cell--12-col">
+              <button class="mdl-button mdl-js-button mdl-button--raised" @click="nextPage" v-show="hasMoreImages">
+                load more images
+              </button>
             </div>
             <div class="mdl-cell mdl-cell--12-col">
               {{ images }}
@@ -100,13 +148,20 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.4/lodash.min.js"></script>
     <script>
     const IMGUR_CLIENT_ID = '49e246bf973b316';
-    var app = new Vue({
+    const PAGE_SIZE = 12;
+    const app = new Vue({
       el: '#the-photo-album-app',
       data: {
         searchTag: '',
         images: [],
+        remainder: [],
       },
       created() {
+      },
+      computed: {
+        hasMoreImages() {
+          return this.remainder.length > 0;
+        }
       },
       methods: {
         fetchPhotosMatchingTag(tag) {
@@ -123,7 +178,10 @@
               return;
             }
             const apiData = response.body.data;
-            self.images = _.take(apiData.items, 10);
+            const imageList = apiData.items;
+            const numberToTake = Math.min(PAGE_SIZE, imageList.length);
+            self.images = _.take(imageList, numberToTake);
+            self.remainder = _.takeRight(imageList, (imageList.length - numberToTake));
           });
         },
         imageUrl(image) {
@@ -131,6 +189,16 @@
             return `http://i.imgur.com/${image.cover}.png`;
           }
           return image.link;
+        },
+        nextPage() {
+          if (this.remainder.length <= 0) {
+            return;
+          }
+          const imageList = this.remainder;
+          const numberToTake = Math.min(PAGE_SIZE, imageList.length);
+          const moreImages = _.take(imageList, numberToTake);
+          this.images = _.concat(this.images, moreImages);
+          this.remainder = _.takeRight(imageList, (imageList.length) - numberToTake);
         },
       },
     });
