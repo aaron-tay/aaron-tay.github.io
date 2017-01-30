@@ -29,4 +29,4 @@ NodeJS, Javascript, ES6, AngularJS, React, VueJS, MDL, jQuery, Bootstrap, HTML, 
 
 ### Thanks for visiting :)
 
-Visit my GitHub profile and send me an email :)
+Visit [my GitHub profile](https://github.com/aaron-tay"> for more
