@@ -133,8 +133,13 @@
               <button class="mdl-button mdl-js-button mdl-button--raised" @click="nextPage" v-show="hasMoreImages">
                 load more images
               </button>
-            </div>
             <div class="mdl-cell mdl-cell--12-col">
+              <label class="mdl-switch mdl-js-switch mdl-js-ripple-effect" for="debug-toggle">
+                <input type="checkbox" id="debug-toggle" class="mdl-switch__input" v-model="showDebugging">
+                <span class="mdl-switch__label">Debug Mode</span>
+              </label>
+            </div>
+            <div class="mdl-cell mdl-cell--12-col" v-show="showDebugging">
               {{ images }}
             </div>
           </div>
@@ -154,6 +159,7 @@
         searchTag: '',
         images: [],
         remainder: [],
+        showDebugging: false,
       },
       created() {
       },
