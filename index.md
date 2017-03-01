@@ -21,6 +21,7 @@ There's been plenty of opportunities for me over the years to work with numerous
 ### Random stuff I've made
 
 * [Photo Finder](https://aaron-tay.github.io/photoAlbum.html) A simple ImgurAPI experiment to find photos.
+* [HackerNewsClone](https://aaron-tay.github.io/hackerNewsClone.html) A watered down implementation of y-combinator's Hacker News.
 
 
 ### Keywords (cos these attract people and SEO bots) - but also stuff I know ;)
