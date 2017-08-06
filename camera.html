@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>camera</title>
+
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="description" content="">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <link rel="stylesheet" href="https://code.getmdl.io/1.3.0/material.blue_grey-pink.min.css" />
+    <style type="text/css">
+      video {
+        transform: rotateY(180deg);
+        -webkit-transform:rotateY(180deg); /* Safari and Chrome */
+        -moz-transform:rotateY(180deg); /* Firefox */
+      }
+    </style>
+  </head>
+  <body>
+    <div id="the-app">
+      <div class="mdl-layout mdl-js-layout mdl-layout--fixed-header mdl-layout--no-drawer-button">
+        <header class="mdl-layout__header">
+          <div class="mdl-layout__header-row">
+            <span class="mdl-layout-title">Camera</span>
+            <div class="mdl-layout-spacer"></div>
+            <nav class="mdl-navigation mdl-layout--large-screen-only">
+              <a class="mdl-navigation__link" href="https://aaron-tay.github.io/">by aaron-tay</a>
+            </nav>
+          </div>
+        </header>
+        <main class="mdl-layout__content">
+          <div class="page-content">
+            <div class="mdl-grid">
+              <div class="mdl-cell mdl-cell--12-col">
+                <h3>
+                  About
+                </h3>
+                <p>
+                  This is a basic example of using the HTML5 Camera
+                <p>
+                  I constructed is using a variety of tools such as
+                  <a href="https://vuejs.org/" target="_blank">VueJS</a>,
+                  <a href="https://getmdl.io" target="_blank">MDL</a>,
+                  <a href="https://lodash.com" target="_blank">Lodash</a>,
+                  <a href="https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia" target="_blank">MDN.doc getUserMedia</a> and
+                  <a href="https://developer.mozilla.org/en/docs/Web/HTML/Element/video" target="_blank">MDN.doc video</a>
+                </p>
+                <p>
+                  If you're interested in the source, inspect it, or visit my
+                  <a href="https://github.com/aaron-tay/aaron-tay.github.io">
+                    GitHub
+                  </a>.
+                </p>
+              </div>
+            </div>
+            <div class="mdl-cell mdl-cell--12-col">
+              <label class="mdl-switch mdl-js-switch mdl-js-ripple-effect" for="debug-toggle">
+                <input type="checkbox" id="debug-toggle" class="mdl-switch__input" v-model="debugging">
+                <span class="mdl-switch__label">Debug Mode</span>
+              </label>
+            </div>
+            <div class="mdl-cell mdl-cell--12-col">
+              <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent" @click="startCamera">
+                start
+              </button>
+              <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--colored" @click="stopCamera">
+                stop
+              </button>
+              <video autoplay></video>
+            </div>
+            <div class="mdl-cell mdl-cell--12-col" v-show="debugging">
+              <div v-show="debugging">
+                {{ errors }}
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+    <script src="https://code.getmdl.io/1.3.0/material.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.4.0/vue.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.4/lodash.min.js"></script>
+    <script>
+    const app = new Vue({
+      el: '#the-app',
+      data() {
+        return {
+          hasCamera: false,
+          localMediaStream: null,
+          debugging: false,
+          errors: {},
+        };
+      },
+      created() {
+        const canUseCamera = (!!navigator.mediaDevices.getUserMedia);
+        if (canUseCamera) {
+          this.hasCamera = true;
+        } else {
+          alert('getUserMedia() is not supported in your browser');
+        }
+      },
+      computed: {
+        isPlaying() {
+          return this.localMediaStream !== null;
+        },
+        isStopped() {
+          return this.localMediaStream === null;
+        },
+      },
+      methods: {
+        stopCamera() {
+          const video = document.querySelector('video');
+          video.pause();
+          video.src = null;
+          this.localMediaStream.getTracks()[0].stop();
+          this.localMediaStream = null;
+        },
+        startCamera() {
+          const vm = this;
+          const mediaConstraints = {
+            video: {
+              width: {
+                ideal: 320,
+              },
+              height: {
+                ideal: 240,
+              },
+            },
+          };
+          navigator.mediaDevices.getUserMedia(mediaConstraints).then((localMediaStream) => {
+            const video = document.querySelector('video');
+            video.src = window.URL.createObjectURL(localMediaStream);
+            vm.localMediaStream = localMediaStream;
+
+            // Note: onloadedmetadata doesn't fire in Chrome when using it with getUserMedia.
+            // See crbug.com/110938.
+            video.onloadedmetadata = (e) => {
+              // Ready to go. Do some stuff.
+              console.log(e);
+              vm.$set(vm, 'errors', e);
+            };
+          }).catch(vm.errorCallback);
+        },
+      },
+    });
+    </script>
+  </body>
+</html>

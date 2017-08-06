@@ -22,6 +22,7 @@ There's been plenty of opportunities for me over the years to work with numerous
 
 * [Photo Finder](https://aaron-tay.github.io/photoAlbum.html) A simple ImgurAPI experiment to find photos.
 * [HackerNewsClone](https://aaron-tay.github.io/hackerNewsClone.html) A watered down implementation of y-combinator's Hacker News.
+* [Camera](https://aaron-tay.github.io/camera.html) A basic example of using HTML5 for camera streaming.
 * [Social.UI](https://aaron-tay.github.io/social.ui) A template for a hypothetical social network website.
 
 
