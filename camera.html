@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
     <link rel="stylesheet" href="https://code.getmdl.io/1.3.0/material.blue_grey-pink.min.css" />
     <style type="text/css">
-      video {
+      video.mirror {
         transform: rotateY(180deg);
         -webkit-transform:rotateY(180deg); /* Safari and Chrome */
         -moz-transform:rotateY(180deg); /* Firefox */
@@ -65,17 +65,19 @@
               <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent" @click="startCamera">
                 start
               </button>
-              <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect" @click="switchCameras">
+              <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect" @click="switchCameras" :disabled="numberOfCameras <= 1">
                 switch
               </button>
               <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--colored" @click="stopCamera">
                 stop
               </button>
-              <video autoplay></video>
+              <video autoplay :class="{ 'mirror': facingMode === 'user' }"></video>
             </div>
             <div class="mdl-cell mdl-cell--12-col" v-show="debugging">
               <div v-show="debugging">
-                {{ errors }}
+                {{ errors }} <br />
+                {{ mediaDevices.support }} <br />
+                {{ mediaDevices.devices }} <br />
               </div>
             </div>
           </div>
@@ -90,6 +92,7 @@
       USER: 'user',
       ENVIRONMENT: 'environment',
     }
+    const lodash = _;
     const app = new Vue({
       el: '#the-app',
       data() {
@@ -99,9 +102,16 @@
           debugging: false,
           errors: {},
           facingMode: FACING_MODES.USER,
+          mediaDevices : {},
         };
       },
       created() {
+        const vm = this;
+        this.$set(this.mediaDevices, 'support', navigator.mediaDevices.getSupportedConstraints());
+        navigator.mediaDevices.enumerateDevices().then((devices) => {
+          vm.$set(vm.mediaDevices, 'devices', devices);
+        })
+
         const canUseCamera = (!!navigator.mediaDevices.getUserMedia);
         if (canUseCamera) {
           this.hasCamera = true;
@@ -116,9 +126,16 @@
         isStopped() {
           return this.localMediaStream === null;
         },
+        numberOfCameras() {
+          if (lodash.isEmpty(this.mediaDevices)) { return 0; }
+          const cameras = lodash.filter(this.mediaDevices.devices, device => device.kind === 'videoinput');
+          return lodash.size(cameras);
+        },
       },
       methods: {
         switchCameras() {
+          if (this.numberOfCameras <= 1) { return; }
+
           this.stopCamera();
           if (this.facingMode === FACING_MODES.USER) {
             this.facingMode = FACING_MODES.ENVIRONMENT;
