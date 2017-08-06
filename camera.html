@@ -65,6 +65,9 @@
               <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent" @click="startCamera">
                 start
               </button>
+              <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect" @click="switchCameras">
+                switch
+              </button>
               <button class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--colored" @click="stopCamera">
                 stop
               </button>
@@ -83,6 +86,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.4.0/vue.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.4/lodash.min.js"></script>
     <script>
+    const FACING_MODES = {
+      USER: 'user',
+      ENVIRONMENT: 'environment',
+    }
     const app = new Vue({
       el: '#the-app',
       data() {
@@ -91,6 +98,7 @@
           localMediaStream: null,
           debugging: false,
           errors: {},
+          facingMode: FACING_MODES.USER,
         };
       },
       created() {
@@ -110,6 +118,15 @@
         },
       },
       methods: {
+        switchCameras() {
+          this.stopCamera();
+          if (this.facingMode === FACING_MODES.USER) {
+            this.facingMode = FACING_MODES.ENVIRONMENT;
+          } else {
+            this.facingMode = FACING_MODES.USER;
+          }
+          this.startCamera();
+        },
         stopCamera() {
           const video = document.querySelector('video');
           video.pause();
@@ -127,6 +144,7 @@
               height: {
                 ideal: 240,
               },
+              facingMode: this.facingMode,
             },
           };
           navigator.mediaDevices.getUserMedia(mediaConstraints).then((localMediaStream) => {
