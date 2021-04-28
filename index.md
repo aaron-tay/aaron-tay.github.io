@@ -21,7 +21,7 @@ There's been plenty of opportunities for me over the years to work with numerous
 
 ### Random stuff I've made
 
-* [Data Generator](https://aaron-tay.github.io/developer-toolbox/index.html') UI to generate random data
+* [Data Generator](https://aaron-tay.github.io/developer-toolbox/index.html) UI to generate random data
 * [Photo Finder](https://aaron-tay.github.io/photoAlbum.html) A simple ImgurAPI experiment to find photos.
 * [HackerNewsClone](https://aaron-tay.github.io/hackerNewsClone.html) A watered down implementation of y-combinator's Hacker News.
 * [Camera](https://aaron-tay.github.io/camera.html) A basic example of using HTML5 for camera streaming.
