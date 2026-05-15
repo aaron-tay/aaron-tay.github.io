@@ -1,0 +1,14 @@
+{
+  "name": "Poopy Birdy",
+  "short_name": "Poopy Birdy",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#8bac0f",
+  "theme_color": "#0f380f",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

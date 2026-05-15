@@ -16,6 +16,12 @@
     <meta http-equiv="content-type" content="text/html; charset=utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
     <title>Poopy Birdy v0.2</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Poopy Birdy" />
+    <meta name="theme-color" content="#0f380f" />
     <link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
 
@@ -143,10 +149,31 @@
       </div>
     </div>
 
+    <script>
+      // Fullscreen-on-first-input: hide browser chrome when the player
+      // starts interacting. Best-effort — browsers that deny the request
+      // (notably iOS Safari in-tab) silently fall through; the PWA-install
+      // path provides standalone display for those cases.
+      (function () {
+        var triggered = false;
+        function tryFullscreen() {
+          if (triggered) return;
+          triggered = true;
+          var el = document.documentElement;
+          var fn = el.requestFullscreen || el.webkitRequestFullscreen;
+          if (fn) {
+            try { fn.call(el); } catch (e) { /* ignored */ }
+          }
+        }
+        window.addEventListener('pointerdown', tryFullscreen, { once: true, passive: true });
+        window.addEventListener('touchstart',  tryFullscreen, { once: true, passive: true });
+      })();
+    </script>
+
     <script src="index.js"></script>
     <script>
       (function () {
-        const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":126376,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+        const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":128816,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 
         const splash = document.getElementById('splash');
         const bar = document.getElementById('splash-progress-bar');
