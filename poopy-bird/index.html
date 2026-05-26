@@ -258,6 +258,22 @@
         document.addEventListener('webkitfullscreenchange', refresh);
         refresh();
       })();
+
+      // App service worker — precaches the build so the installed PWA
+      // boots offline after the first online visit. Registered at
+      // window.load so it doesn't contend with engine bootstrap, and
+      // behind a feature check + .catch so an unsupported environment
+      // or a transient failure logs a warning but never blocks the
+      // game from running. Coexists with coi-serviceworker (loaded
+      // synchronously in <head>) — that SW owns COOP/COEP injection,
+      // this one owns asset caching.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('sw.js').catch(function (err) {
+            console.warn('app sw registration failed:', err);
+          });
+        });
+      }
     </script>
 
     <script src="index.js"></script>
