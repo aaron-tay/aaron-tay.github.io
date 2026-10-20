@@ -209,7 +209,7 @@ h1 {
    along the bottom of the outline, over the card's text box. */
 .guide-layer {
   position: absolute;
-  left: 8%; top: 6%; width: 84%; height: 88%;
+  left: 6.1%; top: 2.5%; width: 87.8%; height: 92%;
   z-index: 3;
   pointer-events: none;
 }
@@ -325,7 +325,7 @@ select.chip option { color: #16201b; background: #f7f9f8; }
   gap: 0.9em;
   padding: 3.5em 1.1em 2.5em; /* clears the bright band at the top and the controls at the bottom */
   text-align: center;
-  font-size: clamp(12px, 4.2cqi, 16px); /* the outline is about 84% of the stage's width */
+  font-size: clamp(12px, 4.4cqi, 16px); /* the outline is about 88% of the stage's width */
   color: #e4ebe7;
 }
 .idle p { margin: 0; line-height: 1.35; color: #c3cfc8; overflow-wrap: break-word; }
@@ -624,7 +624,9 @@ function buildIndex(names) {
   };
   for (const raw of names) {
     const name = String(raw).trim();
-    if (!name) continue;
+    // Joke cards whose name is partly a blank line ("_____ Goblin") can't
+    // be read off the card, and their remaining letters look like other names.
+    if (!name || name.includes("_")) continue;
     if (name.includes("//")) {
       add(normName(name), name, false);
       for (const part of name.split("//")) add(normName(part), name, true);
@@ -641,6 +643,7 @@ const _rowA = new Int32Array(256), _rowB = new Int32Array(256);
 // text after the name (usually the mana cost) is ignored, but only if it
 // starts at a word break, so "Fireball" never matches the split half "Fire".
 // anyTail ignores extra text wherever it starts, for text with spaces removed.
+let _matchEnd = 0; // where in the text the last prefixDistance match ended
 function prefixDistance(name, text, limit, anyTail) {
   const L = name.length, M = Math.min(text.length, 255);
   if (L - M > limit) return limit + 1;
@@ -662,10 +665,23 @@ function prefixDistance(name, text, limit, anyTail) {
     const t = prev; prev = cur; cur = t;
   }
   let best = prev[M];
+  _matchEnd = M;
   for (let j = Math.max(1, L - limit); j < M; j++) {
-    if ((anyTail || text.charCodeAt(j) === 32) && prev[j] < best) best = prev[j];
+    if ((anyTail || text.charCodeAt(j) === 32) && prev[j] < best) { best = prev[j]; _matchEnd = j; }
   }
   return best;
+}
+
+// Text left over after a name is usually the mana cost read as short junk
+// ("zw", "1r"). Real words left over mean the name doesn't explain what was
+// read: "_____ Goblin" reads as just "goblin", and must not win over
+// "Goblin War Drums" by ignoring "war drums". So leftover pieces of three or
+// more letters count against a match.
+function leftoverPenalty(rest, anyTail) {
+  if (anyTail) return rest.length >= 3 ? rest.length * 0.5 : 0;
+  let pen = 0;
+  for (const tok of rest.split(" ")) if (tok.length >= 3) pen += tok.length * 0.5;
+  return pen;
 }
 
 // Finds the card name that best explains a line of OCR text.
@@ -683,24 +699,29 @@ function matchText(index, raw, opts) {
     variants.push(toks.join(" "));
   }
 
-  // Fast path: an exact name followed by nothing or by junk words.
-  for (const v of variants) {
-    const words = v.split(" ");
-    for (let k = words.length; k >= 1; k--) {
-      const e = index.exact.get(words.slice(0, k).join(" "));
-      if (e && (!splitOnly || e.split) && e.key.length >= 3) {
-        return { name: e.name, key: e.key, dist: 0, half: e.half, text: t };
-      }
-    }
-  }
-
   let best = null;
-  const consider = (e, d, L) => {
-    const score = d / L;
+  // Lower is better: letters corrected, plus leftover words, per letter of name.
+  const consider = (e, d, L, pen) => {
+    const score = (d + pen) / L;
     if (!best || score < best.score || (score === best.score && L > best.key.length)) {
       best = { name: e.name, key: e.key, dist: d, half: e.half, score, text: t };
     }
   };
+
+  // Exact names at the start of the reading. One followed by nothing, or
+  // only by short junk, is the answer. One followed by real words is kept as
+  // a candidate, and a close match that explains those words can beat it.
+  for (const v of variants) {
+    const words = v.split(" ");
+    for (let k = words.length; k >= 1; k--) {
+      const e = index.exact.get(words.slice(0, k).join(" "));
+      if (!e || (splitOnly && !e.split) || e.key.length < 3) continue;
+      const pen = leftoverPenalty(words.slice(k).join(" "), false);
+      if (pen === 0) return { name: e.name, key: e.key, dist: 0, half: e.half, text: t };
+      consider(e, 0, e.key.length, pen);
+      break;
+    }
+  }
   for (const v of variants) {
     const M = v.length;
     const have = letterCounts(v);
@@ -711,7 +732,7 @@ function matchText(index, raw, opts) {
       if (lim === 0 || L - M > lim) continue;
       if (missingLetters(e.counts, have, lim) > lim) continue;
       const d = prefixDistance(e.key, v, lim, false);
-      if (d <= lim) consider(e, d, L);
+      if (d <= lim) consider(e, d, L, leftoverPenalty(v.slice(_matchEnd).trim(), false));
     }
   }
   // Letters read with stray spaces ("Rhys t ic S t ud y"): compare with all
@@ -727,7 +748,7 @@ function matchText(index, raw, opts) {
       if (L - ns.length > lim) continue;
       if (missingLetters(e.counts, have, lim) > lim) continue;
       const d = prefixDistance(e.keyNs, ns, lim, true);
-      if (d <= lim && (!best || d / L < best.score)) consider(e, d, L);
+      if (d <= lim) consider(e, d, L, leftoverPenalty(ns.slice(_matchEnd), true));
     }
   }
   return best;
@@ -828,15 +849,16 @@ $("refreshNames").addEventListener("click", async () => {
 /* ---------- Guide geometry (in video pixels) ---------- */
 const CARD_RATIO = 63 / 88;
 // The card outline, in camera pixels. It is sized from the part of the
-// camera image the 3:4 camera area actually shows, leaving a strip below it
-// for the reading line.
+// camera image the 3:4 camera area actually shows: 92% of its height, set
+// near the top so there is a strip below it for the reading line.
 const STAGE_RATIO = 3 / 4;
 function guideRect(vw, vh) {
   let visW = vw, visH = vh;
   if (vw / vh > STAGE_RATIO) visW = vh * STAGE_RATIO; else visH = vw / STAGE_RATIO;
-  let h = visH * 0.88, w = h * CARD_RATIO;
-  if (w > visW * 0.86) { w = visW * 0.86; h = w / CARD_RATIO; }
-  return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
+  let h = visH * 0.92, w = h * CARD_RATIO;
+  if (w > visW * 0.9) { w = visW * 0.9; h = w / CARD_RATIO; }
+  const visTop = (vh - visH) / 2;
+  return { x: (vw - w) / 2, y: visTop + visH * 0.025, w, h };
 }
 // Name band as a fraction of the card: top of the card, inside the frame.
 const BAND = { x0: 0.04, x1: 0.96, y0: 0.015, y1: 0.14 };
