@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Card Name Scanner</title>
+<meta name="theme-color" content="#111916">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111916'/%3E%3Crect x='17' y='8.5' width='30' height='47' rx='3.5' fill='none' stroke='%23e4ebe7' stroke-width='3'/%3E%3Crect x='20.5' y='13' width='23' height='7.5' rx='2' fill='%23f2c661'/%3E%3Crect x='20.5' y='24' width='23' height='14' rx='1.5' fill='%23e4ebe7' fill-opacity='.28'/%3E%3Crect x='20.5' y='41.5' width='23' height='2.6' rx='1.3' fill='%23e4ebe7' fill-opacity='.28'/%3E%3Crect x='20.5' y='46.5' width='15' height='2.6' rx='1.3' fill='%23e4ebe7' fill-opacity='.28'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/png;base64,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">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya:wght@500;700&family=Alegreya+Sans:wght@400;500;700&display=swap">
@@ -45,6 +48,9 @@ body {
   background: var(--bg);
   color: var(--ink);
   font: 16px/1.45 var(--font-ui);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 [hidden] { display: none !important; }
 button, select, input { font: inherit; color: inherit; }
@@ -160,15 +166,18 @@ h1 {
   grid-template-columns: minmax(0, max(320px, 70vh * 0.75)) minmax(0, 1fr);
   gap: 20px 28px;
   align-items: start;
+  align-content: start; /* rows stay packed at the top; spare height goes below them */
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
-  padding-block: 18px max(24px, env(safe-area-inset-bottom, 0px));
+  padding-block: 18px 24px;
+  width: 100%;
+  flex: 1 0 auto;
 }
 @media (max-width: 820px) { .app { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 600px) {
   .bar-inner { min-height: 44px; }
   h1 { font-size: 1.1rem; }
-  .app { gap: 12px; padding-block: 12px max(20px, env(safe-area-inset-bottom, 0px)); }
+  .app { gap: 12px; padding-block: 12px 20px; }
 }
 
 .stage-col { min-width: 0; }
@@ -327,6 +336,29 @@ ol.list li.fresh { animation: fresh 1.2s ease-out; }
 .tips { margin: 0; padding-left: 1.1em; }
 .tips li + li { margin-top: 4px; }
 
+/* Footer bar with the legal notice */
+.site-foot {
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.site-foot-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-block: 12px 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  font-size: .78rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.site-foot p { margin: 0; max-width: 90ch; }
+.site-foot a { color: inherit; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); }
+.site-foot a:hover { color: var(--ink); }
+
 /* Undo toast after removing a card */
 .toast {
   position: fixed;
@@ -451,6 +483,13 @@ ol.list li.fresh { animation: fresh 1.2s ease-out; }
   </aside>
 </main>
 
+<footer class="site-foot">
+  <div class="site-foot-inner">
+    <p>Card Name Scanner is unofficial Fan Content permitted under the <a href="https://company.wizards.com/en/legal/fancontentpolicy" target="_blank" rel="noopener">Fan Content Policy</a>. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.</p>
+    <p>Card names from <a href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a>.</p>
+  </div>
+</footer>
+
 <div class="toast" id="toast" role="status" aria-live="polite" hidden>
   <span class="toast-msg">Removed <span class="toast-name" id="toastText"></span></span>
   <button type="button" id="toastUndo">Undo</button>
@@ -468,6 +507,7 @@ ol.list li.fresh { animation: fresh 1.2s ease-out; }
       <li>Hold still for a moment. A card is added after two matching reads.</li>
       <li>Split cards like Fire // Ice can be held either way up.</li>
       <li>Tilt foils away from lights to avoid glare on the name.</li>
+      <li>Older cards print the name straight onto a textured frame. Bright, even light helps most, and a reflection across the name can hide letters completely.</li>
       <li>Move each card out of the outline before the next. Scanning the same card again adds another copy.</li>
       <li>If the name looks soft, the camera can't focus that close. Hold the card a little further back.</li>
       <li>The page picks the rear camera that focuses closest. Use the camera menu at the top left to choose another; your choice is remembered.</li>
@@ -830,6 +870,7 @@ const _stack = [];
 function removeThinShapes(ink, w, h) {
   const seen = new Uint8Array(w * h);
   const colCount = new Uint16Array(w);
+  const minSpeck = Math.max(3, Math.round(h * h * 0.002));
   for (let start = 0; start < ink.length; start++) {
     if (!ink[start] || seen[start]) continue;
     const pixels = [];
@@ -844,14 +885,18 @@ function removeThinShapes(ink, w, h) {
       if (y > 0 && ink[i - w] && !seen[i - w]) { seen[i - w] = 1; _stack.push(i - w); }
       if (y < h - 1 && ink[i + w] && !seen[i + w]) { seen[i + w] = 1; _stack.push(i + w); }
     }
+    // Specks from texture or sensor noise, smaller than any letter part.
+    if (pixels.length < minSpeck) { for (const i of pixels) ink[i] = 0; continue; }
     const bw = maxX - minX + 1;
     let minY = h, maxY = 0;
     for (const i of pixels) { const y = (i / w) | 0; if (y < minY) minY = y; if (y > maxY) maxY = y; }
     const bh = maxY - minY + 1;
-    // Card frame and outline reaching in from the edge of the crop: a large
-    // blob touching the edge. Lettering sits inside the bar, clear of the edge.
+    // Card frame and outline reaching in from the edge of the crop: a blob
+    // touching the edge that spans much of the width or nearly all the height.
+    // Smaller edge blobs are kept, since in dim light letters can merge with
+    // dark frame texture that reaches the edge.
     const edge = minX === 0 || maxX === w - 1 || minY === 0 || maxY === h - 1;
-    if (edge && (bw > w * 0.12 || bh > h * 0.8)) { for (const i of pixels) ink[i] = 0; continue; }
+    if (edge && (bw > w * 0.45 || bh > h * 0.8)) { for (const i of pixels) ink[i] = 0; continue; }
     // A thin upright line as tall as the whole strip is a bit of side outline.
     if (bh > h * 0.85 && bw < Math.max(4, w * 0.03)) { for (const i of pixels) ink[i] = 0; continue; }
     if (bw < w * 0.2) continue; // narrower than any line we care about
@@ -874,7 +919,50 @@ function histPct(hist, count, frac) {
 // just the bar's interior in the band canvas as black text on white, with a
 // white margin, ready for OCR. Returns the crop's contrast: under 30 means a
 // blank area, and -1 means there is something there but no lettering.
-function prepBand(src, sx, sy, sw, sh, scale) {
+// How cleanly a histogram splits into two groups (Otsu's measure, 0 to 1).
+function separability(hist, count) {
+  let sAll = 0, sq = 0;
+  for (let v = 0; v < 256; v++) { sAll += v * hist[v]; sq += v * v * hist[v]; }
+  const mean = sAll / count, total = sq / count - mean * mean;
+  if (total < 1) return 0;
+  let wB = 0, sB = 0, best = 0;
+  for (let v = 0; v < 256; v++) {
+    wB += hist[v]; if (!wB) continue;
+    const wF = count - wB; if (!wF) break;
+    sB += v * hist[v];
+    const between = wB * wF * (sB / wB - (sAll - sB) / wF) ** 2;
+    if (between > best) best = between;
+  }
+  return best / (count * count * total);
+}
+
+// Whether the lettering is lighter than the bar it sits on. A clearly light
+// bar has dark lettering and a clearly dark one light lettering. For a
+// mid-tone bar (a dim blue frame, say) count the pixels far darker than the
+// bar and those far lighter; lettering is on the side with more. Blown-out
+// glare is left out of the count.
+function lightLettering(grey, w, h, top, bottom, bar) {
+  if (bar >= 150) return false;
+  if (bar <= 85) return true;
+  let darker = 0, lighter = 0;
+  for (let y = top; y < bottom; y++) {
+    for (let x = Math.round(w * 0.06); x < Math.round(w * 0.94); x++) {
+      const v = grey[y * w + x];
+      if (v < bar - 70) darker++;
+      else if (v > bar + 70 && v < 250) lighter++;
+    }
+  }
+  return lighter > darker * 1.15;
+}
+
+// Reading methods, tried in turn on successive frames:
+//   0  brightness, one cut-off for the whole bar (modern cards, even light)
+//   1  best colour channel, each pixel judged against its neighbourhood
+//      (old textured frames, uneven light, glare)
+//   2  best colour channel, one cut-off
+const METHODS = 3;
+
+function prepBand(src, sx, sy, sw, sh, scale, method = 0) {
   const w = Math.round(sw * scale), h = Math.round(sh * scale);
   bandCv.width = w; bandCv.height = h;
   bandCx.imageSmoothingQuality = "high";
@@ -883,8 +971,24 @@ function prepBand(src, sx, sy, sw, sh, scale) {
   const n = w * h;
   const grey = new Uint8Array(n);
   const hist = new Uint32Array(256);
+  // Dark letters on a blue frame barely differ in brightness but differ a lot
+  // in the blue channel, so methods 1 and 2 use whichever of red, green and
+  // blue best splits the middle of the crop into two groups.
+  let ch0 = -1;
+  if (method > 0) {
+    const hs = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+    let cnt = 0;
+    for (let y = Math.round(h * 0.25); y < Math.round(h * 0.75); y++) {
+      for (let x = Math.round(w * 0.06); x < Math.round(w * 0.94); x++) {
+        const p = (y * w + x) * 4;
+        hs[0][d[p]]++; hs[1][d[p + 1]]++; hs[2][d[p + 2]]++; cnt++;
+      }
+    }
+    let bestSep = -1;
+    for (let c = 0; c < 3; c++) { const sep = separability(hs[c], cnt); if (sep > bestSep) { bestSep = sep; ch0 = c; } }
+  }
   for (let i = 0, p = 0; i < n; i++, p += 4) {
-    const v = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8;
+    const v = ch0 < 0 ? (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8 : d[p + ch0];
     grey[i] = v; hist[v]++;
   }
   const lo = histPct(hist, n, 0.02), hi = histPct(hist, n, 0.98);
@@ -906,8 +1010,11 @@ function prepBand(src, sx, sy, sw, sh, scale) {
   for (let y = 0; y < h; y++) {
     hr.fill(0); bins.fill(0);
     for (let x = cx0; x < cx1; x++) { const v = grey[y * w + x]; hr[v]++; bins[v >> 3]++; }
-    let mb = 0;
-    for (let b = 1; b < 32; b++) if (bins[b] + (bins[b - 1] >> 1) + (b < 31 ? bins[b + 1] >> 1 : 0) >
+    // Blown-out glare piles up in the top bin (and deep shadow in the
+    // bottom one), so those only count when they are most of the row.
+    const lo0 = bins[0] > cn * 0.45 ? 0 : 1, hi0 = bins[31] > cn * 0.45 ? 31 : 30;
+    let mb = lo0;
+    for (let b = lo0 + 1; b <= hi0; b++) if (bins[b] + (bins[b - 1] >> 1) + (b < 31 ? bins[b + 1] >> 1 : 0) >
                                      bins[mb] + (mb ? bins[mb - 1] >> 1 : 0) + (mb < 31 ? bins[mb + 1] >> 1 : 0)) mb = b;
     lvl[y] = mb * 8 + 4;
     con[y] = histPct(hr, cn, 0.95) - histPct(hr, cn, 0.05);
@@ -957,8 +1064,8 @@ function prepBand(src, sx, sy, sw, sh, scale) {
     for (let i = 0; i < n; i++) hb[grey[i]]++;
     bar = histPct(hb, n, 0.5);
   }
-  // A dark bar with light lettering is inverted so text is always dark.
-  if (bar < 110) { for (let i = 0; i < n; i++) grey[i] = 255 - grey[i]; bar = 255 - bar; }
+  // Light lettering (on a dark bar) is inverted so text is always dark.
+  if (lightLettering(grey, w, h, top, bottom, bar)) { for (let i = 0; i < n; i++) grey[i] = 255 - grey[i]; bar = 255 - bar; }
 
   // Side edges of the bar: step in from each end of the crop past frame and
   // outline until reaching a column that is mostly bar colour. Stopping there
@@ -973,21 +1080,61 @@ function prepBand(src, sx, sy, sw, sh, scale) {
   left = Math.min(w - 1, left + inset); right = Math.max(left + 1, right - inset);
   const cw = right - left, ch = bottom - top;
 
-  // Black and white at Otsu's threshold over the bar: smudges and glare drop out.
-  const ho = new Uint32Array(256);
-  for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) ho[grey[y * w + x]]++;
   const m = cw * ch;
-  let wB = 0, sB = 0, sAll = 0, best = 0, thr = 128;
-  for (let v = 0; v < 256; v++) sAll += v * ho[v];
-  for (let v = 0; v < 256; v++) {
-    wB += ho[v]; if (!wB) continue;
-    const wF = m - wB; if (!wF) break;
-    sB += v * ho[v];
-    const between = wB * wF * (sB / wB - (sAll - sB) / wF) ** 2;
-    if (between > best) { best = between; thr = v; }
-  }
   const ink = new Uint8Array(m);
-  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) ink[y * cw + x] = grey[(y + top) * w + x + left] <= thr ? 1 : 0;
+  if (method === 1) {
+    // Smooth away sensor noise first (it is worst in dim light).
+    const g2 = new Uint8Array(grey);
+    for (let y = Math.max(1, top); y < Math.min(h - 1, bottom); y++) {
+      for (let x = Math.max(1, left); x < Math.min(w - 1, right); x++) {
+        const i = y * w + x;
+        g2[i] = (grey[i - w - 1] + grey[i - w] + grey[i - w + 1] + grey[i - 1] + grey[i] + grey[i + 1] +
+                 grey[i + w - 1] + grey[i + w] + grey[i + w + 1]) / 9;
+      }
+    }
+    grey.set(g2);
+    // Sauvola's method: a pixel is ink if it is darker than its surroundings
+    // by an amount that depends on how varied they are. Copes with light
+    // falling off across the card and with textured frames.
+    const W1 = cw + 1;
+    const sum = new Float64Array(W1 * (ch + 1)), sum2 = new Float64Array(W1 * (ch + 1));
+    for (let y = 0; y < ch; y++) {
+      let rs = 0, rs2 = 0;
+      for (let x = 0; x < cw; x++) {
+        const v = grey[(y + top) * w + x + left];
+        rs += v; rs2 += v * v;
+        sum[(y + 1) * W1 + x + 1] = sum[y * W1 + x + 1] + rs;
+        sum2[(y + 1) * W1 + x + 1] = sum2[y * W1 + x + 1] + rs2;
+      }
+    }
+    const r = Math.max(6, Math.round(ch * 0.35)), k = 0.25;
+    for (let y = 0; y < ch; y++) {
+      const y0 = Math.max(0, y - r), y1 = Math.min(ch, y + r + 1);
+      for (let x = 0; x < cw; x++) {
+        const x0 = Math.max(0, x - r), x1 = Math.min(cw, x + r + 1);
+        const a = (y1 - y0) * (x1 - x0);
+        const s1 = sum[y1 * W1 + x1] - sum[y0 * W1 + x1] - sum[y1 * W1 + x0] + sum[y0 * W1 + x0];
+        const s2 = sum2[y1 * W1 + x1] - sum2[y0 * W1 + x1] - sum2[y1 * W1 + x0] + sum2[y0 * W1 + x0];
+        const mean = s1 / a, sd = Math.sqrt(Math.max(0, s2 / a - mean * mean));
+        const v = grey[(y + top) * w + x + left];
+        ink[y * cw + x] = v < mean * (1 + k * (sd / 128 - 1)) && v < mean - 10 ? 1 : 0;
+      }
+    }
+  } else {
+    // One cut-off for the whole bar, at Otsu's threshold: smudges drop out.
+    const ho = new Uint32Array(256);
+    for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) ho[grey[y * w + x]]++;
+    let wB = 0, sB = 0, sAll = 0, best = 0, thr = 128;
+    for (let v = 0; v < 256; v++) sAll += v * ho[v];
+    for (let v = 0; v < 256; v++) {
+      wB += ho[v]; if (!wB) continue;
+      const wF = m - wB; if (!wF) break;
+      sB += v * ho[v];
+      const between = wB * wF * (sB / wB - (sAll - sB) / wF) ** 2;
+      if (between > best) { best = between; thr = v; }
+    }
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) ink[y * cw + x] = grey[(y + top) * w + x + left] <= thr ? 1 : 0;
+  }
   removeThinShapes(ink, cw, ch);
   let inkCount = 0;
   for (let i = 0; i < m; i++) inkCount += ink[i];
@@ -1024,10 +1171,10 @@ async function ocrBand() {
 }
 
 // Upright read of the name band.
-async function readUpright() {
+async function readUpright(method = 0) {
   const sx = CW * BAND.x0, sy = CH * BAND.y0;
   const sw = CW * (BAND.x1 - BAND.x0), sh = CH * (BAND.y1 - BAND.y0);
-  const contrast = prepBand(cardCv, sx, sy, sw, sh, 1);
+  const contrast = prepBand(cardCv, sx, sy, sw, sh, 1, method);
   if (contrast >= 0 && contrast < 30) return { text: "", match: null, empty: true };
   if (contrast < 0) return { text: "", match: null };
   const text = await ocrBand();
@@ -1038,7 +1185,7 @@ async function readUpright() {
 // turn each way and read both halves, each a small card of its own with the
 // name along its top. Short half names must be read exactly, so the two
 // halves are also matched together ("Fire Ice" against "Fire // Ice").
-async function readSideways() {
+async function readSideways(method = 0) {
   const halfW = CH / 2;
   for (const dir of [1, -1]) {
     rotCx.save();
@@ -1048,7 +1195,7 @@ async function readSideways() {
     rotCx.restore();
     const texts = [];
     for (const hx of [0, halfW]) {
-      if (prepBand(rotCv, hx + halfW * 0.01, CW * 0.015, halfW * 0.98, CW * 0.125, 2) < 30) continue;
+      if (prepBand(rotCv, hx + halfW * 0.01, CW * 0.015, halfW * 0.98, CW * 0.125, 2, method) < 30) continue;
       const text = await ocrBand();
       if (!text) continue;
       const match = matchText(index, text, { splitOnly: true });
@@ -1067,8 +1214,9 @@ async function readSideways() {
 /* ---------- Scan loop ---------- */
 let running = false, stream = null, wakeLock = null, loopId = 0;
 let prevThumb = null, lastOcrThumb = null, sceneTries = 0;
-let candidate = null, candidateHits = 0;
-let present = null, presentThumb = null, misses = 0;
+let recent = [];  // the last few reads: a card name, or null for no match
+let attempt = 0;  // counts reads, to cycle through the reading methods
+let present = null, presentThumb = null;
 
 function showReading(text, cls) {
   const el = $("current");
@@ -1091,7 +1239,9 @@ async function tick(id) {
   if (motion > 10) { again(40); return; } // moving: wait for a still frame
 
   const sameScene = thumbDiff(thumb, lastOcrThumb) < 5;
-  if (sameScene && ((present && candidate === present && candidateHits >= 2) || sceneTries >= 2)) {
+  // Nothing new to read: the card already added is still in view, or every
+  // reading method has had two tries at this exact view.
+  if (sameScene && ((present && recent[recent.length - 1] === present) || sceneTries >= METHODS * 2)) {
     again(60);
     return;
   }
@@ -1099,32 +1249,34 @@ async function tick(id) {
   sceneTries++;
   lastOcrThumb = thumb;
 
+  const method = attempt++ % METHODS;
   const t0 = performance.now();
-  let r = await readUpright();
+  let r = await readUpright(method);
   if (!r.match && !r.empty && $("splitToggle").checked) {
-    const s = await readSideways();
+    const s = await readSideways(method);
     if (s.match) r = s;
   }
   const ms = Math.round(performance.now() - t0);
   if (!running || id !== loopId) return;
 
-  if (r.match) {
-    misses = 0;
-    const name = r.match.name;
-    if (name === candidate) candidateHits++;
-    else { candidate = name; candidateHits = 1; }
-    if (candidateHits >= 2 && name !== present) {
+  // A card is added once the same name comes up in 2 of the last 4 reads.
+  // Reads cycle through the methods, so a card that only one method can
+  // read (an old frame in poor light, say) is still added.
+  const name = r.match ? r.match.name : null;
+  recent.push(name);
+  if (recent.length > 4) recent.shift();
+  if (name) {
+    if (name !== present && recent.filter((x) => x === name).length >= 2) {
       present = name;
       presentThumb = thumb;
       addCard(name);
       flash();
     }
-    showReading(name, candidateHits >= 2 ? "confirmed" : "pending");
+    showReading(name, name === present ? "confirmed" : "pending");
     $("meta").textContent = `${ms} ms`;
   } else {
-    misses++;
-    candidate = null; candidateHits = 0;
-    if (present && misses >= 3 && thumbDiff(thumb, presentThumb) > 18) { present = null; presentThumb = null; }
+    // The card has gone once none of the last reads found it and the view has changed.
+    if (present && !recent.includes(present) && thumbDiff(thumb, presentThumb) > 18) { present = null; presentThumb = null; }
     if (!present) showReading(r.text ? `“${r.text}”` : "No card in the outline", "pending");
     $("meta").textContent = r.text ? `${ms} ms` : "";
   }
@@ -1451,7 +1603,7 @@ $("clearBtn").addEventListener("click", () => { if (cards.length) $("clearConfir
 $("clearNo").addEventListener("click", () => ($("clearConfirm").hidden = true));
 $("clearYes").addEventListener("click", () => {
   cards = []; saveList(); renderList(); $("clearConfirm").hidden = true;
-  present = null; candidate = null; candidateHits = 0;
+  present = null; recent = [];
 });
 
 /* ---------- Tips ---------- */
