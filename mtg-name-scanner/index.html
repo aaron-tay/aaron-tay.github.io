@@ -204,20 +204,29 @@ h1 {
 .stage.hit .guide-band { stroke: #6fdc9c; fill: rgba(111, 220, 156, .22); }
 .stage.hit .guide-card { stroke: #6fdc9c; }
 
-/* Controls along the top edge of the camera area, above the outline */
-.stage-top {
+/* A layer exactly over the card outline (placed by placeGuideLayer). Only
+   the name band at the top matters for reading, so the camera controls sit
+   along the bottom of the outline, over the card's text box. */
+.guide-layer {
   position: absolute;
-  top: 6px;
-  left: 6px;
-  right: 6px;
+  left: 8%; top: 6%; width: 84%; height: 88%;
   z-index: 3;
+  pointer-events: none;
+}
+.guide-layer > * { pointer-events: auto; }
+.card-ctrls {
+  position: absolute;
+  left: 8px;
+  right: 44px; /* leaves the lower-right corner to the info button */
+  bottom: 8px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .chip {
-  min-height: 26px;
-  padding: 2px 9px;
+  height: 26px; /* camera menu, Stop and the info button all share this height */
+  padding: 0 9px;
+  line-height: 24px;
   font-size: .8rem;
   color: #e4ebe7;
   background: rgba(8, 12, 10, .72);
@@ -226,19 +235,43 @@ h1 {
 }
 .chip:hover:not(:disabled) { border-color: rgba(255, 255, 255, .5); }
 .chip:disabled { opacity: .55; cursor: default; }
-select.chip { min-width: 0; max-width: 70%; padding-right: 4px; }
-select.chip option { color: #16201b; background: #f7f9f8; }
-.chip.info {
-  margin-left: auto;
-  width: 26px;
-  padding: 0;
-  border-radius: 50%;
-  font-family: var(--font-name);
-  font-style: italic;
-  font-weight: 700;
-  font-size: .95rem;
-  line-height: 1;
+/* A long camera name never pushes Stop off the row: the menu is capped and
+   cuts its text short instead. */
+select.chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 62px);
+  text-overflow: ellipsis;
+  /* Our own arrow, with room between it and the edge. */
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 27px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23e4ebe7' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 10px 6px;
 }
+select.chip option { color: #16201b; background: #f7f9f8; }
+.info-btn {
+  /* Pinned to the lower-right corner of the card outline, on its own so the
+     camera menu can never push it out of place. The backing and the symbol
+     are one drawing, so the symbol always sits in the middle. */
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  line-height: 0;
+  color: #e4ebe7;
+}
+.info-btn svg { display: block; width: 26px; height: 26px; }
+.info-btn .ring { fill: rgba(8, 12, 10, .72); stroke: rgba(255, 255, 255, .2); }
+.info-btn:hover .ring { stroke: rgba(255, 255, 255, .5); }
+#stopBtn { flex: none; }
 
 /* Tips modal */
 .modal {
@@ -282,17 +315,17 @@ select.chip option { color: #16201b; background: #f7f9f8; }
 .ms { margin-left: auto; flex: none; color: #b8c6be; font-variant-numeric: tabular-nums; }
 
 .idle {
-  /* Placed over the card outline by placeIdle(); text scales with it. */
+  /* Fills the card outline; text scales with it. */
   position: absolute;
-  left: 9%; top: 7%; width: 82%; height: 86%;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.9em;
-  padding: 3.5em 1.1em 0; /* clears the bright band at the top of the outline */
+  padding: 3.5em 1.1em 2.5em; /* clears the bright band at the top and the controls at the bottom */
   text-align: center;
-  font-size: clamp(12px, 4.2cqi, 16px); /* the outline is about 82% of the stage's width */
+  font-size: clamp(12px, 4.2cqi, 16px); /* the outline is about 84% of the stage's width */
   color: #e4ebe7;
 }
 .idle p { margin: 0; line-height: 1.35; color: #c3cfc8; overflow-wrap: break-word; }
@@ -446,14 +479,23 @@ ol.list li.fresh { animation: fresh 1.2s ease-out; }
     <div class="stage" id="stage">
       <video id="video" playsinline muted></video>
       <svg id="overlay" viewBox="0 0 1280 960" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
-      <div class="stage-top">
-        <select class="chip" id="cameraSelect" aria-label="Camera" disabled><option value="">Best rear camera</option></select>
-        <button type="button" class="chip info" id="infoBtn" aria-label="Tips for fast scans" title="Tips for fast scans" aria-haspopup="dialog">i</button>
-        <button type="button" class="chip" id="stopBtn" disabled>Stop</button>
-      </div>
-      <div class="idle" id="idle">
-        <button class="primary" id="startBtn" type="button">Start camera</button>
-        <p>Hold a card inside this outline, with its name in the bright band.</p>
+      <div class="guide-layer" id="guideLayer">
+        <div class="idle" id="idle">
+          <button class="primary" id="startBtn" type="button">Start camera</button>
+          <p>Hold a card inside this outline, with its name in the bright band.</p>
+        </div>
+        <div class="card-ctrls">
+          <select class="chip" id="cameraSelect" aria-label="Camera" disabled><option value="">Best rear camera</option></select>
+          <button type="button" class="chip" id="stopBtn" disabled>Stop</button>
+        </div>
+        <button type="button" class="info-btn" id="infoBtn" aria-label="Tips for fast scans" title="Tips for fast scans" aria-haspopup="dialog">
+          <svg viewBox="0 0 28 28" aria-hidden="true">
+            <rect class="ring" x="0.5" y="0.5" width="27" height="27" rx="8"/>
+            <circle cx="14" cy="14" r="7.2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="14" cy="10.3" r="1.05" fill="currentColor"/>
+            <rect x="13.15" y="12.7" width="1.7" height="5.4" rx="0.85" fill="currentColor"/>
+          </svg>
+        </button>
       </div>
       <div class="stage-foot" id="foot" aria-live="polite">
         <span id="statusDot" class="dot"></span>
@@ -785,9 +827,15 @@ $("refreshNames").addEventListener("click", async () => {
 
 /* ---------- Guide geometry (in video pixels) ---------- */
 const CARD_RATIO = 63 / 88;
+// The card outline, in camera pixels. It is sized from the part of the
+// camera image the 3:4 camera area actually shows, leaving a strip below it
+// for the reading line.
+const STAGE_RATIO = 3 / 4;
 function guideRect(vw, vh) {
-  let h = vh * 0.86, w = h * CARD_RATIO;
-  if (w > vw * 0.86) { w = vw * 0.86; h = w / CARD_RATIO; }
+  let visW = vw, visH = vh;
+  if (vw / vh > STAGE_RATIO) visW = vh * STAGE_RATIO; else visH = vw / STAGE_RATIO;
+  let h = visH * 0.88, w = h * CARD_RATIO;
+  if (w > visW * 0.86) { w = visW * 0.86; h = w / CARD_RATIO; }
   return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
 }
 // Name band as a fraction of the card: top of the card, inside the frame.
@@ -809,26 +857,27 @@ function drawOverlay(vw, vh) {
     <rect class="guide-band" x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="${bh * 0.18}"
       fill="rgba(255,214,120,0.14)" stroke="#f2c661" stroke-width="${sw}"/>`;
   shownSize = [vw, vh];
-  placeIdle();
+  placeGuideLayer();
 }
 
-// Puts the start prompt exactly over the card outline, allowing for how the
-// camera feed is scaled up and cropped to fill the card-shaped stage.
+// Puts the layer holding the start prompt and the camera controls exactly
+// over the card outline, allowing for how the camera feed is scaled up and
+// cropped to fill the card-shaped stage.
 let shownSize = [1280, 960];
-function placeIdle() {
+function placeGuideLayer() {
   const [vw, vh] = shownSize;
   const W = stage.clientWidth, H = stage.clientHeight;
   if (!W || !H) return;
   const k = Math.max(W / vw, H / vh);
   const ox = (W - vw * k) / 2, oy = (H - vh * k) / 2;
   const g = guideRect(vw, vh);
-  const box = $("idle");
+  const box = $("guideLayer");
   box.style.left = ox + g.x * k + "px";
   box.style.top = oy + g.y * k + "px";
   box.style.width = g.w * k + "px";
   box.style.height = g.h * k + "px";
 }
-if (window.ResizeObserver) new ResizeObserver(placeIdle).observe(stage);
+if (window.ResizeObserver) new ResizeObserver(placeGuideLayer).observe(stage);
 drawOverlay(1280, 960);
 
 /* ---------- Canvases ---------- */
@@ -1305,7 +1354,8 @@ function beep() {
 /* ---------- Camera ---------- */
 async function openCamera(deviceId) {
   stopStream();
-  const video0 = { width: { ideal: 1280 }, height: { ideal: 960 } };
+  // Higher resolution where the camera has it: more detail in the name.
+  const video0 = { width: { ideal: 1920 }, height: { ideal: 1440 } };
   if (deviceId) video0.deviceId = { exact: deviceId };
   else video0.facingMode = { ideal: "environment" };
   stream = await navigator.mediaDevices.getUserMedia({ video: video0, audio: false });
