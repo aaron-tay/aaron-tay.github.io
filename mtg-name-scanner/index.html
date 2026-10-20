@@ -109,7 +109,7 @@ h1 {
   right: 0;
   top: calc(100% + 6px);
   z-index: 20;
-  min-width: 190px;
+  width: min(320px, calc(100vw - 32px));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -119,8 +119,38 @@ h1 {
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
 }
-.settings label { display: flex; align-items: center; gap: 9px; cursor: pointer; white-space: nowrap; }
-.settings input { width: 17px; height: 17px; margin: 0; accent-color: var(--accent); }
+.settings .toggle { display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.settings .toggle input { width: 17px; height: 17px; margin: 0; accent-color: var(--accent); }
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: .88rem;
+  color: var(--muted);
+}
+.settings-section p { margin: 0; }
+.settings-title { color: var(--ink); font-weight: 700; font-size: .92rem; }
+.settings-section .row { display: flex; flex-wrap: wrap; gap: 6px; }
+.settings-section button, .file-btn { padding: 5px 10px; font-size: .88rem; }
+.file-btn {
+  display: inline-block;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.file-btn:hover { border-color: var(--muted); }
+.visually-hidden:focus-visible + .file-btn { outline: 2px solid var(--accent); outline-offset: 2px; }
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 
 .app {
   max-width: 1180px;
@@ -185,10 +215,37 @@ h1 {
   border: 1px solid rgba(255, 255, 255, .2);
   border-radius: 8px;
 }
-.chip:hover { border-color: rgba(255, 255, 255, .5); }
+.chip:hover:not(:disabled) { border-color: rgba(255, 255, 255, .5); }
+.chip:disabled { opacity: .55; cursor: default; }
 select.chip { min-width: 0; max-width: 70%; padding-right: 4px; }
 select.chip option { color: #16201b; background: #f7f9f8; }
-#stopBtn { margin-left: auto; }
+.chip.info {
+  margin-left: auto;
+  width: 26px;
+  padding: 0;
+  border-radius: 50%;
+  font-family: var(--font-name);
+  font-style: italic;
+  font-weight: 700;
+  font-size: .95rem;
+  line-height: 1;
+}
+
+/* Tips modal */
+.modal {
+  width: min(460px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .3);
+}
+.modal::backdrop { background: rgba(6, 10, 8, .55); }
+.modal-inner { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 18px; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.modal h2 { font-size: 1.2rem; }
+.modal-head button { padding: 4px 10px; font-size: .9rem; }
 
 /* Reading line along the bottom edge, below the outline */
 .stage-foot {
@@ -267,15 +324,56 @@ ol.list li.fresh { animation: fresh 1.2s ease-out; }
 .rowbtns button { padding: 2px 9px; font-size: .95rem; line-height: 1.3; }
 .empty { margin: 0; color: var(--muted); }
 
-details { border-top: 1px solid var(--line); padding-top: 10px; color: var(--muted); font-size: .92rem; }
-summary { cursor: pointer; color: var(--ink); font-weight: 500; }
-details .inner { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
-details .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-details p { margin: 0; }
 .tips { margin: 0; padding-left: 1.1em; }
 .tips li + li { margin-top: 4px; }
 
+/* Undo toast after removing a card */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 30;
+  max-width: min(420px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 11px 14px; /* room for the countdown bar along the bottom */
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--ink);
+  color: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
+  font-size: .92rem;
+  animation: toast-in .18s ease-out;
+}
+.toast-msg { display: flex; gap: .3em; min-width: 0; white-space: nowrap; }
+.toast-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
+/* Shrinks to nothing over the undo time */
+.toast-timer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 3px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  transform-origin: left;
+}
+.toast-timer.run { animation: toast-time linear forwards; }
+@keyframes toast-time { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.toast button {
+  flex: none;
+  padding: 4px 12px;
+  border-color: color-mix(in srgb, var(--surface) 45%, transparent);
+  background: transparent;
+  color: inherit;
+  font-weight: 700;
+}
+.toast button:hover { border-color: var(--surface); }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
 @media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
   ol.list li.fresh { animation: none; }
   .guide-band { transition: none; }
 }
@@ -294,8 +392,18 @@ details p { margin: 0; }
         <span>Settings</span>
       </button>
       <div class="settings" id="settingsPanel" hidden>
-        <label for="soundToggle"><input type="checkbox" id="soundToggle" checked> Sound on scan</label>
-        <label for="splitToggle"><input type="checkbox" id="splitToggle" checked> Split cards</label>
+        <label class="toggle" for="soundToggle"><input type="checkbox" id="soundToggle" checked> Sound on scan</label>
+        <label class="toggle" for="splitToggle"><input type="checkbox" id="splitToggle" checked> Split cards</label>
+        <div class="settings-section">
+          <div class="settings-title">Card name list</div>
+          <p id="namesInfo">Downloaded from Scryfall when you start, then kept in this browser for a week.</p>
+          <div class="row">
+            <button type="button" id="refreshNames">Refresh from Scryfall</button>
+            <input type="file" id="namesFile" class="visually-hidden" accept=".txt,.csv,.json,text/plain,text/csv,application/json">
+            <label class="file-btn" for="namesFile">Use my own list</label>
+          </div>
+          <p>A .txt file with one name per line, a .csv with names in the first column, or a JSON array. Write split cards as "Fire // Ice".</p>
+        </div>
       </div>
     </div>
   </div>
@@ -307,16 +415,17 @@ details p { margin: 0; }
       <video id="video" playsinline muted></video>
       <svg id="overlay" viewBox="0 0 1280 960" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
       <div class="stage-top">
-        <select class="chip" id="cameraSelect" aria-label="Camera" hidden></select>
-        <button type="button" class="chip" id="stopBtn" hidden>Stop</button>
+        <select class="chip" id="cameraSelect" aria-label="Camera" disabled><option value="">Best rear camera</option></select>
+        <button type="button" class="chip info" id="infoBtn" aria-label="Tips for fast scans" title="Tips for fast scans" aria-haspopup="dialog">i</button>
+        <button type="button" class="chip" id="stopBtn" disabled>Stop</button>
       </div>
       <div class="idle" id="idle">
         <button class="primary" id="startBtn" type="button">Start camera</button>
         <p>Hold a card inside this outline, with its name in the bright band.</p>
       </div>
-      <div class="stage-foot" id="foot" aria-live="polite" hidden>
+      <div class="stage-foot" id="foot" aria-live="polite">
         <span id="statusDot" class="dot"></span>
-        <span class="current" id="current"></span>
+        <span class="current" id="current">Camera off</span>
         <span class="ms" id="meta"></span>
       </div>
     </div>
@@ -339,32 +448,32 @@ details p { margin: 0; }
       <button type="button" id="clearNo">Keep</button>
     </div>
 
-    <details id="namesDetails">
-      <summary>Card name list</summary>
-      <div class="inner">
-        <p id="namesInfo">Not loaded yet. The full list of card names is fetched from Scryfall when you start, then kept in this browser for a week.</p>
-        <div class="row">
-          <button type="button" id="refreshNames">Refresh from Scryfall</button>
-          <label for="namesFile">Use my own list <input type="file" id="namesFile" accept=".txt,.csv,.json,text/plain,text/csv,application/json"></label>
-        </div>
-        <p>Your own list can be a .txt file with one name per line, a .csv whose first column is the name, or a JSON array of names. Split cards should be written as "Fire // Ice".</p>
-      </div>
-    </details>
-    <details>
-      <summary>Tips for fast scans</summary>
-      <div class="inner">
-        <ul class="tips">
-          <li>Fill the outline with the card and line the name up with the bright band.</li>
-          <li>Hold still for a moment. A card is added after two matching reads.</li>
-          <li>Split cards like Fire // Ice can be held either way up.</li>
-          <li>Tilt foils away from lights to avoid glare on the name.</li>
-          <li>Move each card out of the outline before the next. Scanning the same card again adds another copy.</li>
-          <li>Webcams often can't focus closer than 20 to 30 cm, so hold the card a little further back if the name looks soft.</li>
-        </ul>
-      </div>
-    </details>
   </aside>
 </main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden>
+  <span class="toast-msg">Removed <span class="toast-name" id="toastText"></span></span>
+  <button type="button" id="toastUndo">Undo</button>
+  <span class="toast-timer" id="toastTimer" aria-hidden="true"></span>
+</div>
+
+<dialog class="modal" id="tipsDialog" aria-labelledby="tipsTitle">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <h2 id="tipsTitle">Tips for fast scans</h2>
+      <button type="button" id="tipsClose">Close</button>
+    </div>
+    <ul class="tips">
+      <li>Fill the outline with the card and line the name up with the bright band.</li>
+      <li>Hold still for a moment. A card is added after two matching reads.</li>
+      <li>Split cards like Fire // Ice can be held either way up.</li>
+      <li>Tilt foils away from lights to avoid glare on the name.</li>
+      <li>Move each card out of the outline before the next. Scanning the same card again adds another copy.</li>
+      <li>If the name looks soft, the camera can't focus that close. Hold the card a little further back.</li>
+      <li>The page picks the rear camera that focuses closest. Use the camera menu at the top left to choose another; your choice is remembered.</li>
+    </ul>
+  </div>
+</dialog>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script>
@@ -557,7 +666,6 @@ function setStatus(text, kind) {
   $("current").textContent = text;
   $("current").className = "current";
   $("meta").textContent = "";
-  $("foot").hidden = !text;
 }
 /* ---------- Card names ---------- */
 const NAMES_KEY = "cns.names.v1";
@@ -594,8 +702,8 @@ async function loadNames(force) {
     if (cached && cached.names) {
       useNames(cached.names, "an older saved copy");
     } else {
-      $("namesDetails").open = true;
-      throw new Error("Couldn't download card names from Scryfall. Check your connection, or load your own list under Card name list.");
+      setSettingsOpen(true);
+      throw new Error("Couldn't download card names from Scryfall. Check your connection, or load your own list in Settings.");
     }
   }
 }
@@ -967,7 +1075,6 @@ function showReading(text, cls) {
   el.textContent = text;
   el.className = "current " + (cls || "");
   $("statusDot").className = "dot ok";
-  $("foot").hidden = false;
 }
 
 // One pass of the scan loop. `id` ties it to one Start press, so a loop left
@@ -1045,36 +1152,150 @@ function beep() {
 
 /* ---------- Camera ---------- */
 async function openCamera(deviceId) {
-  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stopStream();
   const video0 = { width: { ideal: 1280 }, height: { ideal: 960 } };
   if (deviceId) video0.deviceId = { exact: deviceId };
   else video0.facingMode = { ideal: "environment" };
   stream = await navigator.mediaDevices.getUserMedia({ video: video0, audio: false });
+  // Ask for continuous autofocus where the camera offers it; it helps up close.
+  const track = stream.getVideoTracks()[0];
+  try {
+    const caps = track.getCapabilities ? track.getCapabilities() : null;
+    if (caps && caps.focusMode && caps.focusMode.includes("continuous")) {
+      await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+    }
+  } catch (e) {}
   video.srcObject = stream;
   await video.play();
   await new Promise((res) => (video.videoWidth ? res() : video.addEventListener("loadedmetadata", res, { once: true })));
   drawOverlay(video.videoWidth, video.videoHeight);
   prevThumb = lastOcrThumb = null;
 }
+function stopStream() {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = null;
+}
+function currentCameraId() {
+  return (stream && stream.getVideoTracks()[0]?.getSettings().deviceId) || "";
+}
+
+/* ---------- Choosing the best rear camera ----------
+   Phones with several rear lenses list each one. For close range:
+   - iPhone (Safari names its lenses): the "Back Triple Camera" or "Back Dual
+     Wide Camera" switches by itself to the lens that focuses closest, so it
+     is preferred over a single lens. Ultra wide and telephoto are avoided.
+   - Elsewhere (Android): each rear camera is opened in turn and asked about
+     its focus. Autofocus and the shortest focusing distance win, and very
+     low resolution lenses (macro and depth helpers) are skipped.
+   The result is remembered so this only happens on the first start. */
+const CAMERA_KEY = "cns.camera";      // a camera you picked from the menu
+const AUTO_CAMERA_KEY = "cns.cameraAuto"; // the camera picked for you
+function isRear(label) { return /back|rear|environment/i.test(label); }
+function labelScore(label) {
+  let sc = 0;
+  if (/triple/i.test(label)) sc += 40;
+  else if (/dual wide/i.test(label)) sc += 30;
+  else if (/dual/i.test(label)) sc += 10;
+  if (/ultra/i.test(label)) sc -= 40;
+  if (/tele/i.test(label)) sc -= 40;
+  if (/depth|infrared|\bir\b/i.test(label)) sc -= 80;
+  return sc;
+}
+// maxWidth is the highest resolution among the rear cameras: a lens well
+// below it is a macro or depth helper, poor for reading text.
+function focusScore(caps, maxWidth) {
+  if (!caps) return 0;
+  let sc = 0;
+  if (caps.focusMode && caps.focusMode.includes("continuous")) sc += 100;
+  if (caps.focusDistance && typeof caps.focusDistance.min === "number") sc -= Math.min(1, caps.focusDistance.min) * 200;
+  const w = caps.width && caps.width.max;
+  if (w) {
+    sc += Math.min(w, 4000) / 400;
+    if (maxWidth && w < maxWidth * 0.6) sc -= 100;
+  }
+  return sc;
+}
+async function videoDevices() {
+  return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+}
+async function pickBestRearCamera() {
+  const current = currentCameraId();
+  const rear = (await videoDevices()).filter((d) => isRear(d.label));
+  if (rear.length < 2) return current || null;
+  const named = rear.map((d) => ({ id: d.deviceId, sc: labelScore(d.label) })).sort((x, y) => y.sc - x.sc);
+  if (named[0].sc > 0) return named[0].id;
+  // Phones can't open two cameras at once, so close the current one and try
+  // each in turn, starting with the one the browser chose (it wins ties).
+  rear.sort((x, y) => (y.deviceId === current) - (x.deviceId === current));
+  stopStream();
+  const found = [];
+  for (const d of rear) {
+    let st = null;
+    try {
+      st = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: d.deviceId } }, audio: false });
+      const t = st.getVideoTracks()[0];
+      found.push({ d, caps: t.getCapabilities ? t.getCapabilities() : null });
+    } catch (e) {
+    } finally {
+      if (st) st.getTracks().forEach((t) => t.stop());
+    }
+  }
+  const maxWidth = Math.max(0, ...found.map((f) => (f.caps && f.caps.width && f.caps.width.max) || 0));
+  let best = current || rear[0].deviceId, bestScore = -Infinity;
+  for (const f of found) {
+    const sc = focusScore(f.caps, maxWidth) + labelScore(f.d.label);
+    if (sc > bestScore) { bestScore = sc; best = f.d.deviceId; }
+  }
+  return best;
+}
+
+// Opens the camera you picked, or else the best rear camera.
+async function openPreferredCamera() {
+  const chosen = store.get(CAMERA_KEY);
+  if (chosen) {
+    try { await openCamera(chosen); return; } catch (e) { store.del(CAMERA_KEY); }
+  }
+  let auto = store.get(AUTO_CAMERA_KEY);
+  if (auto) {
+    try { await openCamera(auto); return; } catch (e) { store.del(AUTO_CAMERA_KEY); }
+  }
+  await openCamera(); // the browser's own rear-camera choice; also asks permission
+  setStatus("Choosing the best camera…", "busy");
+  auto = await pickBestRearCamera();
+  if (auto) store.set(AUTO_CAMERA_KEY, auto);
+  if (!stream || (auto && auto !== currentCameraId())) {
+    try { await openCamera(auto || undefined); } catch (e) { await openCamera(); }
+  }
+}
 
 async function fillCameraList() {
   const sel = $("cameraSelect");
-  const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
-  const current = stream && stream.getVideoTracks()[0]?.getSettings().deviceId;
+  const devices = await videoDevices();
+  const chosen = store.get(CAMERA_KEY) || "";
   sel.innerHTML = "";
+  const autoOpt = document.createElement("option");
+  autoOpt.value = "";
+  autoOpt.textContent = "Best rear camera";
+  sel.appendChild(autoOpt);
   devices.forEach((d, i) => {
     const o = document.createElement("option");
     o.value = d.deviceId;
     o.textContent = d.label || `Camera ${i + 1}`;
-    if (d.deviceId === current) o.selected = true;
     sel.appendChild(o);
   });
-  sel.disabled = devices.length < 2;
-  sel.hidden = !devices.length;
+  sel.value = devices.some((d) => d.deviceId === chosen) ? chosen : "";
+  sel.disabled = false;
 }
 
 $("cameraSelect").addEventListener("change", async (e) => {
-  try { await openCamera(e.target.value); } catch (err) { setStatus("Couldn't switch camera: " + err.message, "err"); }
+  const id = e.target.value;
+  try {
+    if (id) { store.set(CAMERA_KEY, id); await openCamera(id); }
+    else { store.del(CAMERA_KEY); await openPreferredCamera(); }
+    if (running) setStatus("Scanning", "ok");
+  } catch (err) {
+    setStatus("Couldn't switch camera: " + err.message, "err");
+  }
 });
 
 $("startBtn").addEventListener("click", start);
@@ -1088,9 +1309,9 @@ async function start() {
   $("startBtn").disabled = true;
   try {
     setStatus("Waiting for camera permission…", "busy");
-    await openCamera();
+    await openPreferredCamera();
     $("idle").hidden = true;
-    $("stopBtn").hidden = false;
+    $("stopBtn").disabled = false;
     fillCameraList().catch(() => {});
     await Promise.all([initOcr(), loadNames(false)]);
     running = true;
@@ -1104,10 +1325,9 @@ async function start() {
       : err && err.name === "NotFoundError" ? "No camera was found."
       : (err && err.message) || String(err);
     setStatus(msg, "err");
-    if (stream) stream.getTracks().forEach((t) => t.stop());
-    stream = null;
-    $("stopBtn").hidden = true;
-    $("cameraSelect").hidden = true;
+    stopStream();
+    $("stopBtn").disabled = true;
+    $("cameraSelect").disabled = true;
     $("idle").hidden = false;
     $("startBtn").disabled = false;
   }
@@ -1115,15 +1335,14 @@ async function start() {
 
 function stop() {
   running = false;
-  if (stream) stream.getTracks().forEach((t) => t.stop());
-  stream = null;
+  stopStream();
   video.srcObject = null;
   try { wakeLock && wakeLock.release(); } catch (e) {}
   $("idle").hidden = false;
   $("startBtn").disabled = false;
-  $("stopBtn").hidden = true;
-  $("cameraSelect").hidden = true;
-  setStatus("Camera stopped", "");
+  $("stopBtn").disabled = true;
+  $("cameraSelect").disabled = true;
+  setStatus("Camera off", "");
 }
 
 /* ---------- Scanned list ---------- */
@@ -1158,7 +1377,12 @@ function renderList(freshName) {
     const minus = document.createElement("button"); minus.type = "button"; minus.textContent = "−";
     minus.setAttribute("aria-label", "Remove one " + c.name);
     minus.addEventListener("click", () => {
-      c.qty--; if (c.qty <= 0) cards = cards.filter((x) => x !== c);
+      c.qty--;
+      if (c.qty <= 0) {
+        const at = cards.indexOf(c);
+        cards.splice(at, 1);
+        showUndoToast(c.name, at);
+      }
       saveList(); renderList();
     });
     const plus = document.createElement("button"); plus.type = "button"; plus.textContent = "+";
@@ -1172,6 +1396,40 @@ function renderList(freshName) {
   $("empty").hidden = cards.length > 0;
 }
 renderList();
+
+// Removing a card's last copy offers Undo for 10 seconds. A newer removal
+// replaces the toast, and Undo then restores that newer one.
+const UNDO_MS = 10000;
+let toastTimer = null, undoInfo = null;
+function showUndoToast(name, at) {
+  undoInfo = { name, at };
+  $("toastText").textContent = name;
+  $("toastText").title = name;
+  $("toast").hidden = false;
+  // Restart the countdown bar from full.
+  const bar = $("toastTimer");
+  bar.classList.remove("run");
+  void bar.offsetWidth;
+  bar.style.animationDuration = UNDO_MS + "ms";
+  bar.classList.add("run");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, UNDO_MS);
+}
+function hideToast() {
+  clearTimeout(toastTimer);
+  $("toast").hidden = true;
+  undoInfo = null;
+}
+$("toastUndo").addEventListener("click", () => {
+  if (!undoInfo) return;
+  const { name, at } = undoInfo;
+  const existing = cards.find((x) => x.name === name); // scanned again meanwhile
+  if (existing) existing.qty++;
+  else cards.splice(Math.min(at, cards.length), 0, { name, qty: 1 });
+  saveList();
+  renderList(name);
+  hideToast();
+});
 
 function listText() { return cards.map((c) => `${c.qty} ${c.name}`).join("\n"); }
 
@@ -1195,6 +1453,15 @@ $("clearYes").addEventListener("click", () => {
   cards = []; saveList(); renderList(); $("clearConfirm").hidden = true;
   present = null; candidate = null; candidateHits = 0;
 });
+
+/* ---------- Tips ---------- */
+const tipsDialog = $("tipsDialog");
+$("infoBtn").addEventListener("click", () => {
+  if (tipsDialog.showModal) tipsDialog.showModal(); else tipsDialog.setAttribute("open", "");
+});
+$("tipsClose").addEventListener("click", () => (tipsDialog.close ? tipsDialog.close() : tipsDialog.removeAttribute("open")));
+// A click on the dimmed area outside the box closes it too.
+tipsDialog.addEventListener("click", (e) => { if (e.target === tipsDialog && tipsDialog.close) tipsDialog.close(); });
 
 /* ---------- Settings ---------- */
 const settingsBtn = $("settingsBtn"), settingsPanel = $("settingsPanel");
