@@ -1,0 +1,1221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Card Name Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya:wght@500;700&family=Alegreya+Sans:wght@400;500;700&display=swap">
+<style>
+/* Layout: camera stage with a card-shaped guide on the left, the scan log on the right; stacks on phones */
+:root {
+  --bg: #e7ece9;
+  --surface: #f7f9f8;
+  --ink: #16201b;
+  --muted: #59675f;
+  --line: #cdd7d1;
+  --stage: #111916;
+  --accent: #9a6514;
+  --accent-ink: #ffffff;
+  --ok: #2c7a4b;
+  --warn: #a2432c;
+  --font-name: "Alegreya", Georgia, "Times New Roman", serif;
+  --font-ui: "Alegreya Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1412;
+    --surface: #161e1b;
+    --ink: #e4ebe7;
+    --muted: #91a198;
+    --line: #29342f;
+    --stage: #060a09;
+    --accent: #dba54a;
+    --accent-ink: #1b1306;
+    --ok: #5cc48b;
+    --warn: #e57f63;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.45 var(--font-ui);
+}
+[hidden] { display: none !important; }
+button, select, input { font: inherit; color: inherit; }
+button {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button:focus-visible, select:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  font-weight: 700;
+  padding: 10px 18px;
+}
+select {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 6px 8px;
+  max-width: 100%;
+}
+
+/* Header bar: slim, full width, set off by a border */
+.bar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.bar-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 6px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+h1 {
+  font-family: var(--font-name);
+  font-weight: 700;
+  font-size: 1.2rem;
+  line-height: 1.1;
+  margin: 0;
+}
+.settings-wrap { position: relative; }
+.icon-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: .9rem; }
+.icon-btn svg { width: 17px; height: 17px; flex: none; }
+.icon-btn[aria-expanded="true"] { border-color: var(--accent); }
+.settings {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+.settings label { display: flex; align-items: center; gap: 9px; cursor: pointer; white-space: nowrap; }
+.settings input { width: 17px; height: 17px; margin: 0; accent-color: var(--accent); }
+
+.app {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  /* Camera column is as wide as a card-shaped stage that fits the screen height. */
+  grid-template-columns: minmax(0, max(320px, 70vh * 0.75)) minmax(0, 1fr);
+  gap: 20px 28px;
+  align-items: start;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 18px max(24px, env(safe-area-inset-bottom, 0px));
+}
+@media (max-width: 820px) { .app { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) {
+  .bar-inner { min-height: 44px; }
+  h1 { font-size: 1.1rem; }
+  .app { gap: 12px; padding-block: 12px max(20px, env(safe-area-inset-bottom, 0px)); }
+}
+
+.stage-col { min-width: 0; }
+.stage {
+  position: relative;
+  /* Portrait, close to a card's 63:88; the camera feed is cropped to fill it. */
+  aspect-ratio: 3 / 4;
+  width: min(100%, max(320px, 70vh * 0.75));
+  margin-inline: auto;
+  background: var(--stage);
+  border-radius: 12px;
+  overflow: hidden;
+  container-type: inline-size;
+}
+.stage video, .stage svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.stage video { object-fit: cover; }
+.stage svg { pointer-events: none; }
+.guide-band { transition: stroke .15s, fill .15s; }
+.stage.hit .guide-band { stroke: #6fdc9c; fill: rgba(111, 220, 156, .22); }
+.stage.hit .guide-card { stroke: #6fdc9c; }
+
+/* Controls along the top edge of the camera area, above the outline */
+.stage-top {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chip {
+  min-height: 26px;
+  padding: 2px 9px;
+  font-size: .8rem;
+  color: #e4ebe7;
+  background: rgba(8, 12, 10, .72);
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 8px;
+}
+.chip:hover { border-color: rgba(255, 255, 255, .5); }
+select.chip { min-width: 0; max-width: 70%; padding-right: 4px; }
+select.chip option { color: #16201b; background: #f7f9f8; }
+#stopBtn { margin-left: auto; }
+
+/* Reading line along the bottom edge, below the outline */
+.stage-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 10px 6px;
+  background: linear-gradient(to top, rgba(6, 10, 8, .88) 55%, rgba(6, 10, 8, 0));
+  color: #e4ebe7;
+  font-size: .85rem;
+  line-height: 1.3;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #93a29b; flex: none; align-self: center; }
+.dot.ok { background: #5cc48b; }
+.dot.busy { background: #e2ad55; }
+.dot.err { background: #ef8a6e; }
+.current { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.current.pending { color: #b8c6be; font-style: italic; }
+.current.confirmed { color: #f2c661; font-weight: 700; }
+.ms { margin-left: auto; flex: none; color: #b8c6be; font-variant-numeric: tabular-nums; }
+
+.idle {
+  /* Placed over the card outline by placeIdle(); text scales with it. */
+  position: absolute;
+  left: 9%; top: 7%; width: 82%; height: 86%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9em;
+  padding: 3.5em 1.1em 0; /* clears the bright band at the top of the outline */
+  text-align: center;
+  font-size: clamp(12px, 4.2cqi, 16px); /* the outline is about 82% of the stage's width */
+  color: #e4ebe7;
+}
+.idle p { margin: 0; line-height: 1.35; color: #c3cfc8; overflow-wrap: break-word; }
+.idle button.primary { font-size: inherit; padding: 0.65em 1.2em; white-space: nowrap; }
+
+.log {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.log-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+h2 { margin: 0; font-family: var(--font-name); font-size: 1.3rem; font-weight: 700; }
+h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; font-size: 1rem; font-variant-numeric: tabular-nums; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.actions button { padding: 5px 10px; font-size: .9rem; }
+
+ol.list { list-style: none; margin: 0; padding: 0; max-height: 56vh; overflow-y: auto; }
+ol.list li {
+  display: grid;
+  grid-template-columns: 2.4em minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+ol.list li:first-child { border-top: 0; }
+ol.list li.fresh { animation: fresh 1.2s ease-out; }
+@keyframes fresh { from { background: color-mix(in srgb, var(--accent) 22%, transparent); } to { background: transparent; } }
+.qty { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); text-align: right; }
+.cname { font-family: var(--font-name); font-weight: 500; font-size: 1.08rem; overflow-wrap: anywhere; color: var(--ink); text-decoration: none; }
+.cname:hover { text-decoration: underline; text-decoration-color: var(--accent); }
+.rowbtns { display: flex; gap: 4px; }
+.rowbtns button { padding: 2px 9px; font-size: .95rem; line-height: 1.3; }
+.empty { margin: 0; color: var(--muted); }
+
+details { border-top: 1px solid var(--line); padding-top: 10px; color: var(--muted); font-size: .92rem; }
+summary { cursor: pointer; color: var(--ink); font-weight: 500; }
+details .inner { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
+details .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+details p { margin: 0; }
+.tips { margin: 0; padding-left: 1.1em; }
+.tips li + li { margin-top: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  ol.list li.fresh { animation: none; }
+  .guide-band { transition: none; }
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="bar-inner">
+    <h1>Card Name Scanner</h1>
+    <div class="settings-wrap">
+      <button type="button" class="icon-btn" id="settingsBtn" aria-expanded="false" aria-controls="settingsPanel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 6h9M19 6h1M4 12h3M13 12h7M4 18h11M21 18h-1"/>
+          <circle cx="16" cy="6" r="2.4"/><circle cx="10" cy="12" r="2.4"/><circle cx="18" cy="18" r="2.4"/>
+        </svg>
+        <span>Settings</span>
+      </button>
+      <div class="settings" id="settingsPanel" hidden>
+        <label for="soundToggle"><input type="checkbox" id="soundToggle" checked> Sound on scan</label>
+        <label for="splitToggle"><input type="checkbox" id="splitToggle" checked> Split cards</label>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="app">
+  <section class="stage-col" aria-label="Camera">
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted></video>
+      <svg id="overlay" viewBox="0 0 1280 960" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
+      <div class="stage-top">
+        <select class="chip" id="cameraSelect" aria-label="Camera" hidden></select>
+        <button type="button" class="chip" id="stopBtn" hidden>Stop</button>
+      </div>
+      <div class="idle" id="idle">
+        <button class="primary" id="startBtn" type="button">Start camera</button>
+        <p>Hold a card inside this outline, with its name in the bright band.</p>
+      </div>
+      <div class="stage-foot" id="foot" aria-live="polite" hidden>
+        <span id="statusDot" class="dot"></span>
+        <span class="current" id="current"></span>
+        <span class="ms" id="meta"></span>
+      </div>
+    </div>
+  </section>
+
+  <aside class="log" aria-label="Scanned cards">
+    <div class="log-head">
+      <h2>Scanned <span class="count" id="total">0 cards</span></h2>
+      <div class="actions">
+        <button type="button" id="copyBtn">Copy list</button>
+        <button type="button" id="downloadBtn">Download .txt</button>
+        <button type="button" id="clearBtn">Clear</button>
+      </div>
+    </div>
+    <p class="empty" id="empty">Each card you scan is added here with a count. Copy the list as "quantity name" lines to paste into a deck builder or your own database.</p>
+    <ol class="list" id="list"></ol>
+    <div class="actions" id="clearConfirm" hidden>
+      <span>Clear all scanned cards?</span>
+      <button type="button" id="clearYes">Clear</button>
+      <button type="button" id="clearNo">Keep</button>
+    </div>
+
+    <details id="namesDetails">
+      <summary>Card name list</summary>
+      <div class="inner">
+        <p id="namesInfo">Not loaded yet. The full list of card names is fetched from Scryfall when you start, then kept in this browser for a week.</p>
+        <div class="row">
+          <button type="button" id="refreshNames">Refresh from Scryfall</button>
+          <label for="namesFile">Use my own list <input type="file" id="namesFile" accept=".txt,.csv,.json,text/plain,text/csv,application/json"></label>
+        </div>
+        <p>Your own list can be a .txt file with one name per line, a .csv whose first column is the name, or a JSON array of names. Split cards should be written as "Fire // Ice".</p>
+      </div>
+    </details>
+    <details>
+      <summary>Tips for fast scans</summary>
+      <div class="inner">
+        <ul class="tips">
+          <li>Fill the outline with the card and line the name up with the bright band.</li>
+          <li>Hold still for a moment. A card is added after two matching reads.</li>
+          <li>Split cards like Fire // Ice can be held either way up.</li>
+          <li>Tilt foils away from lights to avoid glare on the name.</li>
+          <li>Move each card out of the outline before the next. Scanning the same card again adds another copy.</li>
+          <li>Webcams often can't focus closer than 20 to 30 cm, so hold the card a little further back if the name looks soft.</li>
+        </ul>
+      </div>
+    </details>
+  </aside>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------
+   Hook for your own card database. Called once each time a card is
+   added to the list, with the card's full name ("Fire // Ice" for
+   split cards). Replace the body with your own lookup, for example:
+     fetch("https://your-db.example/cards?name=" + encodeURIComponent(name))
+   ------------------------------------------------------------------ */
+function onCardScanned(name) {
+  // console.log("Scanned:", name);
+}
+
+/* ===================== MATCHER START ===================== */
+// Normalises card names and OCR text the same way so they can be compared.
+function normName(s) {
+  return String(s)
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/æ/g, "ae")
+    .replace(/[-–—_/]+/g, " ")
+    .replace(/[^a-z0-9 ]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// How many character errors a name of this length may have and still match.
+function maxDist(len) {
+  if (len <= 4) return 0;
+  if (len <= 7) return 1;
+  if (len <= 12) return 2;
+  return Math.min(7, Math.round(len / 5));
+}
+
+// Letter tallies give a quick lower bound on edit distance: letters a name
+// needs that the OCR text doesn't have must each cost at least one edit.
+function letterCounts(s) {
+  const c = new Uint8Array(27);
+  for (let i = 0; i < s.length; i++) {
+    const k = s.charCodeAt(i) - 97;
+    if (k >= 0 && k < 26) c[k]++; else if (k !== -65) c[26]++;
+  }
+  return c;
+}
+function missingLetters(need, have, limit) {
+  let miss = 0;
+  for (let k = 0; k < 27; k++) {
+    const d = need[k] - have[k];
+    if (d > 0 && (miss += d) > limit) return miss;
+  }
+  return miss;
+}
+
+// Builds the lookup index. Split cards ("Fire // Ice") are indexed under the
+// full name and under each half, and every entry resolves to the full name.
+function buildIndex(names) {
+  const exact = new Map();
+  const entries = [];
+  const add = (key, name, half) => {
+    if (!key || exact.has(key)) return;
+    const e = { key, keyNs: key.replace(/ /g, ""), name, half, split: name.includes("//"), counts: letterCounts(key) };
+    exact.set(key, e);
+    entries.push(e);
+  };
+  for (const raw of names) {
+    const name = String(raw).trim();
+    if (!name) continue;
+    if (name.includes("//")) {
+      add(normName(name), name, false);
+      for (const part of name.split("//")) add(normName(part), name, true);
+    } else {
+      add(normName(name), name, false);
+    }
+  }
+  return { exact, entries, size: names.length };
+}
+
+const _rowA = new Int32Array(256), _rowB = new Int32Array(256);
+
+// Edit distance between a card name and the start of the OCR text. Extra OCR
+// text after the name (usually the mana cost) is ignored, but only if it
+// starts at a word break, so "Fireball" never matches the split half "Fire".
+// anyTail ignores extra text wherever it starts, for text with spaces removed.
+function prefixDistance(name, text, limit, anyTail) {
+  const L = name.length, M = Math.min(text.length, 255);
+  if (L - M > limit) return limit + 1;
+  let prev = _rowA, cur = _rowB;
+  for (let j = 0; j <= M; j++) prev[j] = j;
+  for (let i = 1; i <= L; i++) {
+    cur[0] = i;
+    let rowMin = i;
+    const c = name.charCodeAt(i - 1);
+    for (let j = 1; j <= M; j++) {
+      const sub = prev[j - 1] + (c === text.charCodeAt(j - 1) ? 0 : 1);
+      const del = prev[j] + 1;
+      const ins = cur[j - 1] + 1;
+      const v = sub < del ? (sub < ins ? sub : ins) : (del < ins ? del : ins);
+      cur[j] = v;
+      if (v < rowMin) rowMin = v;
+    }
+    if (rowMin > limit) return limit + 1;
+    const t = prev; prev = cur; cur = t;
+  }
+  let best = prev[M];
+  for (let j = Math.max(1, L - limit); j < M; j++) {
+    if ((anyTail || text.charCodeAt(j) === 32) && prev[j] < best) best = prev[j];
+  }
+  return best;
+}
+
+// Finds the card name that best explains a line of OCR text.
+// opts.splitOnly limits matches to split cards (a half, or both halves).
+function matchText(index, raw, opts) {
+  const splitOnly = !!(opts && opts.splitOnly);
+  const t = normName(raw);
+  if (t.length < 2) return null;
+  // Readings to try: as read, and with up to three short junk tokens (bits
+  // of the frame read as "l", "-" or "eer") dropped from the front.
+  const variants = [t];
+  let toks = t.split(" ");
+  for (let k = 0; k < 3 && toks.length > 1 && toks[0].length <= 3; k++) {
+    toks = toks.slice(1);
+    variants.push(toks.join(" "));
+  }
+
+  // Fast path: an exact name followed by nothing or by junk words.
+  for (const v of variants) {
+    const words = v.split(" ");
+    for (let k = words.length; k >= 1; k--) {
+      const e = index.exact.get(words.slice(0, k).join(" "));
+      if (e && (!splitOnly || e.split) && e.key.length >= 3) {
+        return { name: e.name, key: e.key, dist: 0, half: e.half, text: t };
+      }
+    }
+  }
+
+  let best = null;
+  const consider = (e, d, L) => {
+    const score = d / L;
+    if (!best || score < best.score || (score === best.score && L > best.key.length)) {
+      best = { name: e.name, key: e.key, dist: d, half: e.half, score, text: t };
+    }
+  };
+  for (const v of variants) {
+    const M = v.length;
+    const have = letterCounts(v);
+    for (const e of index.entries) {
+      if (splitOnly && !e.split) continue;
+      const L = e.key.length;
+      const lim = maxDist(L);
+      if (lim === 0 || L - M > lim) continue;
+      if (missingLetters(e.counts, have, lim) > lim) continue;
+      const d = prefixDistance(e.key, v, lim, false);
+      if (d <= lim) consider(e, d, L);
+    }
+  }
+  // Letters read with stray spaces ("Rhys t ic S t ud y"): compare with all
+  // spaces removed. Only names of 8+ letters, where a loose tail is safe.
+  if (!best || best.dist > 0) {
+    const ns = variants[variants.length - 1].replace(/ /g, "");
+    const have = letterCounts(ns);
+    for (const e of index.entries) {
+      if (splitOnly && !e.split) continue;
+      const L = e.keyNs.length;
+      if (L < 8) continue;
+      const lim = maxDist(L);
+      if (L - ns.length > lim) continue;
+      if (missingLetters(e.counts, have, lim) > lim) continue;
+      const d = prefixDistance(e.keyNs, ns, lim, true);
+      if (d <= lim && (!best || d / L < best.score)) consider(e, d, L);
+    }
+  }
+  return best;
+}
+/* ===================== MATCHER END ===================== */
+
+const $ = (id) => document.getElementById(id);
+const video = $("video"), overlay = $("overlay"), stage = $("stage");
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+};
+
+// Status messages share the reading line at the bottom of the camera area.
+function setStatus(text, kind) {
+  $("statusDot").className = "dot" + (kind ? " " + kind : "");
+  $("current").textContent = text;
+  $("current").className = "current";
+  $("meta").textContent = "";
+  $("foot").hidden = !text;
+}
+/* ---------- Card names ---------- */
+const NAMES_KEY = "cns.names.v1";
+const WEEK = 7 * 24 * 3600 * 1000;
+let index = null;
+
+function useNames(names, source) {
+  index = buildIndex(names);
+  $("namesInfo").textContent = `${names.length.toLocaleString()} card names loaded from ${source}.`;
+}
+
+async function fetchScryfallNames() {
+  const res = await fetch("https://api.scryfall.com/catalog/card-names", { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error("Scryfall answered " + res.status);
+  const json = await res.json();
+  if (!json || !Array.isArray(json.data)) throw new Error("Unexpected reply from Scryfall");
+  return json.data;
+}
+
+async function loadNames(force) {
+  let cached = null;
+  try { cached = JSON.parse(store.get(NAMES_KEY) || "null"); } catch (e) {}
+  if (cached && cached.custom && !force) { useNames(cached.names, "your own list"); return; }
+  if (cached && !force && Date.now() - cached.t < WEEK) {
+    useNames(cached.names, "Scryfall (saved " + new Date(cached.t).toLocaleDateString() + ")");
+    return;
+  }
+  setStatus("Downloading card names from Scryfall…", "busy");
+  try {
+    const names = await fetchScryfallNames();
+    store.set(NAMES_KEY, JSON.stringify({ t: Date.now(), names }));
+    useNames(names, "Scryfall");
+  } catch (err) {
+    if (cached && cached.names) {
+      useNames(cached.names, "an older saved copy");
+    } else {
+      $("namesDetails").open = true;
+      throw new Error("Couldn't download card names from Scryfall. Check your connection, or load your own list under Card name list.");
+    }
+  }
+}
+
+function parseNameFile(text) {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("[")) {
+    const arr = JSON.parse(trimmed);
+    return arr.map((x) => (typeof x === "string" ? x : x && x.name)).filter(Boolean);
+  }
+  const isCsv = /,/.test(trimmed.split(/\r?\n/)[0] || "") && /\.csv$/i.test($("namesFile").files[0]?.name || "");
+  return trimmed.split(/\r?\n/).map((line) => {
+    let v = line;
+    if (isCsv) {
+      const m = line.match(/^\s*"((?:[^"]|"")*)"|^([^,]*)/);
+      v = m ? (m[1] !== undefined ? m[1].replace(/""/g, '"') : m[2]) : line;
+    }
+    return v.trim();
+  }).filter(Boolean);
+}
+
+$("namesFile").addEventListener("change", async () => {
+  const f = $("namesFile").files[0];
+  if (!f) return;
+  try {
+    const names = parseNameFile(await f.text());
+    if (!names.length) throw new Error("no names found");
+    store.set(NAMES_KEY, JSON.stringify({ t: Date.now(), names, custom: true }));
+    useNames(names, "your own list (" + f.name + ")");
+    setStatus(running ? "Scanning" : "Card list ready", running ? "ok" : "");
+  } catch (e) {
+    $("namesInfo").textContent = "Couldn't read " + f.name + ": " + e.message + ".";
+  }
+});
+$("refreshNames").addEventListener("click", async () => {
+  try { await loadNames(true); setStatus(running ? "Scanning" : "Card list ready", running ? "ok" : ""); }
+  catch (e) { setStatus(e.message, "err"); }
+});
+
+/* ---------- Guide geometry (in video pixels) ---------- */
+const CARD_RATIO = 63 / 88;
+function guideRect(vw, vh) {
+  let h = vh * 0.86, w = h * CARD_RATIO;
+  if (w > vw * 0.86) { w = vw * 0.86; h = w / CARD_RATIO; }
+  return { x: (vw - w) / 2, y: (vh - h) / 2, w, h };
+}
+// Name band as a fraction of the card: top of the card, inside the frame.
+const BAND = { x0: 0.04, x1: 0.96, y0: 0.015, y1: 0.14 };
+
+function drawOverlay(vw, vh) {
+  overlay.setAttribute("viewBox", `0 0 ${vw} ${vh}`);
+  const g = guideRect(vw, vh);
+  const rx = g.w * 3 / 63;
+  const sw = Math.max(2, vw / 360);
+  const bx = g.x + g.w * BAND.x0, by = g.y + g.h * BAND.y0;
+  const bw = g.w * (BAND.x1 - BAND.x0), bh = g.h * (BAND.y1 - BAND.y0);
+  overlay.innerHTML = `
+    <defs><mask id="hole"><rect width="${vw}" height="${vh}" fill="#fff"/>
+      <rect x="${g.x}" y="${g.y}" width="${g.w}" height="${g.h}" rx="${rx}" fill="#000"/></mask></defs>
+    <rect width="${vw}" height="${vh}" fill="rgba(0,0,0,0.5)" mask="url(#hole)"/>
+    <rect class="guide-card" x="${g.x}" y="${g.y}" width="${g.w}" height="${g.h}" rx="${rx}"
+      fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="${sw}"/>
+    <rect class="guide-band" x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="${bh * 0.18}"
+      fill="rgba(255,214,120,0.14)" stroke="#f2c661" stroke-width="${sw}"/>`;
+  shownSize = [vw, vh];
+  placeIdle();
+}
+
+// Puts the start prompt exactly over the card outline, allowing for how the
+// camera feed is scaled up and cropped to fill the card-shaped stage.
+let shownSize = [1280, 960];
+function placeIdle() {
+  const [vw, vh] = shownSize;
+  const W = stage.clientWidth, H = stage.clientHeight;
+  if (!W || !H) return;
+  const k = Math.max(W / vw, H / vh);
+  const ox = (W - vw * k) / 2, oy = (H - vh * k) / 2;
+  const g = guideRect(vw, vh);
+  const box = $("idle");
+  box.style.left = ox + g.x * k + "px";
+  box.style.top = oy + g.y * k + "px";
+  box.style.width = g.w * k + "px";
+  box.style.height = g.h * k + "px";
+}
+if (window.ResizeObserver) new ResizeObserver(placeIdle).observe(stage);
+drawOverlay(1280, 960);
+
+/* ---------- Canvases ---------- */
+const CW = 630, CH = 880;
+const cardCv = document.createElement("canvas"); cardCv.width = CW; cardCv.height = CH;
+const cardCx = cardCv.getContext("2d", { willReadFrequently: true });
+const rotCv = document.createElement("canvas"); rotCv.width = CH; rotCv.height = CW;
+const rotCx = rotCv.getContext("2d", { willReadFrequently: true });
+const bandCv = document.createElement("canvas");
+const bandCx = bandCv.getContext("2d", { willReadFrequently: true });
+const thumbCv = document.createElement("canvas"); thumbCv.width = 24; thumbCv.height = 34;
+const thumbCx = thumbCv.getContext("2d", { willReadFrequently: true });
+
+function grabCard() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const g = guideRect(vw, vh);
+  cardCx.drawImage(video, g.x, g.y, g.w, g.h, 0, 0, CW, CH);
+}
+
+function takeThumb() {
+  thumbCx.drawImage(cardCv, 0, 0, 24, 34);
+  const d = thumbCx.getImageData(0, 0, 24, 34).data;
+  const out = new Uint8Array(24 * 34);
+  for (let i = 0, p = 0; i < out.length; i++, p += 4) out[i] = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8;
+  return out;
+}
+function thumbDiff(a, b) {
+  if (!a || !b) return 255;
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+  return s / a.length;
+}
+
+// Removes ink that isn't lettering: card frame reaching in from the edges,
+// stray bits of side outline, and long thin outline seen at a slight tilt. A
+// flat blob is only removed if no column of it is tall, so a letter that
+// happens to touch a line is kept.
+const _stack = [];
+function removeThinShapes(ink, w, h) {
+  const seen = new Uint8Array(w * h);
+  const colCount = new Uint16Array(w);
+  for (let start = 0; start < ink.length; start++) {
+    if (!ink[start] || seen[start]) continue;
+    const pixels = [];
+    let minX = w, maxX = 0;
+    _stack.length = 0; _stack.push(start); seen[start] = 1;
+    while (_stack.length) {
+      const i = _stack.pop(); pixels.push(i);
+      const x = i % w, y = (i / w) | 0;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (x > 0 && ink[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; _stack.push(i - 1); }
+      if (x < w - 1 && ink[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; _stack.push(i + 1); }
+      if (y > 0 && ink[i - w] && !seen[i - w]) { seen[i - w] = 1; _stack.push(i - w); }
+      if (y < h - 1 && ink[i + w] && !seen[i + w]) { seen[i + w] = 1; _stack.push(i + w); }
+    }
+    const bw = maxX - minX + 1;
+    let minY = h, maxY = 0;
+    for (const i of pixels) { const y = (i / w) | 0; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+    const bh = maxY - minY + 1;
+    // Card frame and outline reaching in from the edge of the crop: a large
+    // blob touching the edge. Lettering sits inside the bar, clear of the edge.
+    const edge = minX === 0 || maxX === w - 1 || minY === 0 || maxY === h - 1;
+    if (edge && (bw > w * 0.12 || bh > h * 0.8)) { for (const i of pixels) ink[i] = 0; continue; }
+    // A thin upright line as tall as the whole strip is a bit of side outline.
+    if (bh > h * 0.85 && bw < Math.max(4, w * 0.03)) { for (const i of pixels) ink[i] = 0; continue; }
+    if (bw < w * 0.2) continue; // narrower than any line we care about
+    colCount.fill(0, minX, maxX + 1);
+    let tallest = 0;
+    for (const i of pixels) { const x = i % w; if (++colCount[x] > tallest) tallest = colCount[x]; }
+    if (tallest < Math.max(3, h * 0.15)) for (const i of pixels) ink[i] = 0; // line thickness, never letter height
+  }
+}
+
+// Value below which `frac` of the counted pixels fall, from a 256-bin histogram.
+function histPct(hist, count, frac) {
+  let acc = 0;
+  const target = count * frac;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= target) return v; }
+  return 255;
+}
+
+// Crops part of a source canvas, finds the title bar inside it, and leaves
+// just the bar's interior in the band canvas as black text on white, with a
+// white margin, ready for OCR. Returns the crop's contrast: under 30 means a
+// blank area, and -1 means there is something there but no lettering.
+function prepBand(src, sx, sy, sw, sh, scale) {
+  const w = Math.round(sw * scale), h = Math.round(sh * scale);
+  bandCv.width = w; bandCv.height = h;
+  bandCx.imageSmoothingQuality = "high";
+  bandCx.drawImage(src, sx, sy, sw, sh, 0, 0, w, h);
+  const d = bandCx.getImageData(0, 0, w, h).data;
+  const n = w * h;
+  const grey = new Uint8Array(n);
+  const hist = new Uint32Array(256);
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    const v = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8;
+    grey[i] = v; hist[v]++;
+  }
+  const lo = histPct(hist, n, 0.02), hi = histPct(hist, n, 0.98);
+  const spread = hi - lo;
+  if (spread < 30) return spread;
+  const range = Math.max(24, spread);
+  for (let i = 0; i < n; i++) {
+    const v = ((grey[i] - lo) * 255) / range;
+    grey[i] = v < 0 ? 0 : v > 255 ? 255 : v;
+  }
+
+  // Find the title bar: an evenly coloured strip of rows that has lettering
+  // in it. Each row's level is its most common shade, which is the bar's own
+  // colour however dense the lettering. The card frame above the bar is even
+  // but has no lettering; the art below is uneven.
+  const cx0 = Math.round(w * 0.06), cx1 = Math.round(w * 0.94), cn = cx1 - cx0;
+  const lvl = new Uint8Array(h), con = new Uint8Array(h);
+  const hr = new Uint32Array(256), bins = new Uint32Array(32);
+  for (let y = 0; y < h; y++) {
+    hr.fill(0); bins.fill(0);
+    for (let x = cx0; x < cx1; x++) { const v = grey[y * w + x]; hr[v]++; bins[v >> 3]++; }
+    let mb = 0;
+    for (let b = 1; b < 32; b++) if (bins[b] + (bins[b - 1] >> 1) + (b < 31 ? bins[b + 1] >> 1 : 0) >
+                                     bins[mb] + (mb ? bins[mb - 1] >> 1 : 0) + (mb < 31 ? bins[mb + 1] >> 1 : 0)) mb = b;
+    lvl[y] = mb * 8 + 4;
+    con[y] = histPct(hr, cn, 0.95) - histPct(hr, cn, 0.05);
+  }
+  // Seed on each even strip, then join it with further strips of the same
+  // shade across rows full of lettering: in a long bold name the middle rows
+  // can be more ink than bar.
+  let top = 0, bottom = h, bar = -1, bestScore = 0;
+  const near = (y, mean) => Math.abs(lvl[y] - mean) <= 30;
+  const maxGap = h * 0.3;
+  for (let y = 0; y < h;) {
+    let e = y + 1, mean = lvl[y];
+    while (e < h && near(e, mean)) { mean += (lvl[e] - mean) / (e - y + 1); e++; }
+    if (e - y >= h * 0.06) {
+      let s0 = y, e0 = e;
+      for (;;) { // join downwards
+        let k = e0;
+        while (k < h && !near(k, mean) && con[k] > 70 && k - e0 < maxGap) k++;
+        if (k > e0 && k < h && near(k, mean)) { e0 = k; while (e0 < h && near(e0, mean)) e0++; } else break;
+      }
+      for (;;) { // join upwards
+        let k = s0 - 1;
+        while (k >= 0 && !near(k, mean) && con[k] > 70 && s0 - 1 - k < maxGap) k--;
+        if (k < s0 - 1 && k >= 0 && near(k, mean)) { s0 = k; while (s0 > 0 && near(s0 - 1, mean)) s0--; } else break;
+      }
+      const len = e0 - s0;
+      if (len >= h * 0.2) {
+        let lettered = 0;
+        for (let k = s0; k < e0; k++) if (con[k] > 90) lettered++;
+        const score = lettered + len * 0.1;
+        if (lettered >= len * 0.25 && score > bestScore) { bestScore = score; top = s0; bottom = e0; bar = mean; }
+      }
+    }
+    y = e;
+  }
+  if (bar >= 0) {
+    // A tilted card puts the ends of the lettering in rows that are only partly
+    // bar, so grow the strip into neighbouring rows that still have lettering.
+    const grow = Math.round((bottom - top) * 0.6);
+    let t2 = top, b2 = bottom;
+    while (t2 > 0 && top - t2 < grow && con[t2 - 1] > 70) t2--;
+    while (b2 < h && b2 - bottom < grow && con[b2] > 70) b2++;
+    top = t2; bottom = b2;
+  }
+  if (bar < 0) { // no bar found: read the whole crop
+    const hb = new Uint32Array(256);
+    for (let i = 0; i < n; i++) hb[grey[i]]++;
+    bar = histPct(hb, n, 0.5);
+  }
+  // A dark bar with light lettering is inverted so text is always dark.
+  if (bar < 110) { for (let i = 0; i < n; i++) grey[i] = 255 - grey[i]; bar = 255 - bar; }
+
+  // Side edges of the bar: step in from each end of the crop past frame and
+  // outline until reaching a column that is mostly bar colour. Stopping there
+  // means a letter at the very start of the name is never trimmed.
+  const bh = bottom - top;
+  const colLight = (x) => { let k = 0; for (let y = top; y < bottom; y++) if (grey[y * w + x] >= bar - 50) k++; return k / bh; };
+  let left = 0, right = w;
+  for (let x = 0; x < w * 0.15; x++) if (colLight(x) > 0.8) { left = x; break; }
+  for (let x = w - 1; x > w * 0.85; x--) if (colLight(x) > 0.8) { right = x + 1; break; }
+  const inset = Math.max(1, Math.round(h * 0.02));
+  top = Math.min(h - 1, top + inset); bottom = Math.max(top + 1, bottom - inset);
+  left = Math.min(w - 1, left + inset); right = Math.max(left + 1, right - inset);
+  const cw = right - left, ch = bottom - top;
+
+  // Black and white at Otsu's threshold over the bar: smudges and glare drop out.
+  const ho = new Uint32Array(256);
+  for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) ho[grey[y * w + x]]++;
+  const m = cw * ch;
+  let wB = 0, sB = 0, sAll = 0, best = 0, thr = 128;
+  for (let v = 0; v < 256; v++) sAll += v * ho[v];
+  for (let v = 0; v < 256; v++) {
+    wB += ho[v]; if (!wB) continue;
+    const wF = m - wB; if (!wF) break;
+    sB += v * ho[v];
+    const between = wB * wF * (sB / wB - (sAll - sB) / wF) ** 2;
+    if (between > best) { best = between; thr = v; }
+  }
+  const ink = new Uint8Array(m);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) ink[y * cw + x] = grey[(y + top) * w + x + left] <= thr ? 1 : 0;
+  removeThinShapes(ink, cw, ch);
+  let inkCount = 0;
+  for (let i = 0; i < m; i++) inkCount += ink[i];
+
+  // Write out with a white margin, which the OCR reads best.
+  const pad = Math.max(6, Math.round(ch * 0.15));
+  const ow = cw + pad * 2, oh = ch + pad * 2;
+  bandCv.width = ow; bandCv.height = oh;
+  const out = bandCx.createImageData(ow, oh), od = out.data;
+  od.fill(255);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    if (ink[y * cw + x]) { const p = ((y + pad) * ow + x + pad) * 4; od[p] = od[p + 1] = od[p + 2] = 0; }
+  }
+  bandCx.putImageData(out, 0, 0);
+  return inkCount > m * 0.004 ? spread : -1;
+}
+
+/* ---------- OCR ---------- */
+let worker = null;
+async function initOcr() {
+  if (worker) return;
+  if (!window.Tesseract) throw new Error("The text reader didn't load. Check your internet connection and reload the page.");
+  setStatus("Loading text reader…", "busy");
+  worker = await Tesseract.createWorker("eng", 1);
+  await worker.setParameters({
+    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
+    tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',-. ",
+    preserve_interword_spaces: "1",
+  });
+}
+async function ocrBand() {
+  const { data } = await worker.recognize(bandCv);
+  return (data.text || "").replace(/\s+/g, " ").trim();
+}
+
+// Upright read of the name band.
+async function readUpright() {
+  const sx = CW * BAND.x0, sy = CH * BAND.y0;
+  const sw = CW * (BAND.x1 - BAND.x0), sh = CH * (BAND.y1 - BAND.y0);
+  const contrast = prepBand(cardCv, sx, sy, sw, sh, 1);
+  if (contrast >= 0 && contrast < 30) return { text: "", match: null, empty: true };
+  if (contrast < 0) return { text: "", match: null };
+  const text = await ocrBand();
+  return { text, match: text ? matchText(index, text) : null };
+}
+
+// Classic split cards and rooms are printed sideways: turn the card a quarter
+// turn each way and read both halves, each a small card of its own with the
+// name along its top. Short half names must be read exactly, so the two
+// halves are also matched together ("Fire Ice" against "Fire // Ice").
+async function readSideways() {
+  const halfW = CH / 2;
+  for (const dir of [1, -1]) {
+    rotCx.save();
+    rotCx.translate(CH / 2, CW / 2);
+    rotCx.rotate(dir * Math.PI / 2);
+    rotCx.drawImage(cardCv, -CW / 2, -CH / 2);
+    rotCx.restore();
+    const texts = [];
+    for (const hx of [0, halfW]) {
+      if (prepBand(rotCv, hx + halfW * 0.01, CW * 0.015, halfW * 0.98, CW * 0.125, 2) < 30) continue;
+      const text = await ocrBand();
+      if (!text) continue;
+      const match = matchText(index, text, { splitOnly: true });
+      if (match) return { text, match };
+      texts.push(text);
+    }
+    if (texts.length === 2) {
+      const text = texts.join(" ");
+      const match = matchText(index, text, { splitOnly: true });
+      if (match) return { text, match };
+    }
+  }
+  return { text: "", match: null };
+}
+
+/* ---------- Scan loop ---------- */
+let running = false, stream = null, wakeLock = null, loopId = 0;
+let prevThumb = null, lastOcrThumb = null, sceneTries = 0;
+let candidate = null, candidateHits = 0;
+let present = null, presentThumb = null, misses = 0;
+
+function showReading(text, cls) {
+  const el = $("current");
+  el.textContent = text;
+  el.className = "current " + (cls || "");
+  $("statusDot").className = "dot ok";
+  $("foot").hidden = false;
+}
+
+// One pass of the scan loop. `id` ties it to one Start press, so a loop left
+// over from before a quick Stop and Start ends instead of running twice.
+async function tick(id) {
+  if (!running || id !== loopId) return;
+  const again = (ms) => setTimeout(() => tick(id), ms);
+  if (!video.videoWidth || !index || !worker) { again(100); return; }
+
+  grabCard();
+  const thumb = takeThumb();
+  const motion = thumbDiff(thumb, prevThumb);
+  prevThumb = thumb;
+  if (motion > 10) { again(40); return; } // moving: wait for a still frame
+
+  const sameScene = thumbDiff(thumb, lastOcrThumb) < 5;
+  if (sameScene && ((present && candidate === present && candidateHits >= 2) || sceneTries >= 2)) {
+    again(60);
+    return;
+  }
+  if (!sameScene) sceneTries = 0;
+  sceneTries++;
+  lastOcrThumb = thumb;
+
+  const t0 = performance.now();
+  let r = await readUpright();
+  if (!r.match && !r.empty && $("splitToggle").checked) {
+    const s = await readSideways();
+    if (s.match) r = s;
+  }
+  const ms = Math.round(performance.now() - t0);
+  if (!running || id !== loopId) return;
+
+  if (r.match) {
+    misses = 0;
+    const name = r.match.name;
+    if (name === candidate) candidateHits++;
+    else { candidate = name; candidateHits = 1; }
+    if (candidateHits >= 2 && name !== present) {
+      present = name;
+      presentThumb = thumb;
+      addCard(name);
+      flash();
+    }
+    showReading(name, candidateHits >= 2 ? "confirmed" : "pending");
+    $("meta").textContent = `${ms} ms`;
+  } else {
+    misses++;
+    candidate = null; candidateHits = 0;
+    if (present && misses >= 3 && thumbDiff(thumb, presentThumb) > 18) { present = null; presentThumb = null; }
+    if (!present) showReading(r.text ? `“${r.text}”` : "No card in the outline", "pending");
+    $("meta").textContent = r.text ? `${ms} ms` : "";
+  }
+  again(0);
+}
+
+function flash() {
+  stage.classList.add("hit");
+  setTimeout(() => stage.classList.remove("hit"), 450);
+  if ($("soundToggle").checked) beep();
+}
+let audioCx = null;
+function beep() {
+  try {
+    audioCx = audioCx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCx.createOscillator(), g = audioCx.createGain();
+    o.type = "sine"; o.frequency.value = 880;
+    g.gain.setValueAtTime(0.0001, audioCx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.15, audioCx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCx.currentTime + 0.12);
+    o.connect(g).connect(audioCx.destination);
+    o.start(); o.stop(audioCx.currentTime + 0.13);
+  } catch (e) {}
+}
+
+/* ---------- Camera ---------- */
+async function openCamera(deviceId) {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  const video0 = { width: { ideal: 1280 }, height: { ideal: 960 } };
+  if (deviceId) video0.deviceId = { exact: deviceId };
+  else video0.facingMode = { ideal: "environment" };
+  stream = await navigator.mediaDevices.getUserMedia({ video: video0, audio: false });
+  video.srcObject = stream;
+  await video.play();
+  await new Promise((res) => (video.videoWidth ? res() : video.addEventListener("loadedmetadata", res, { once: true })));
+  drawOverlay(video.videoWidth, video.videoHeight);
+  prevThumb = lastOcrThumb = null;
+}
+
+async function fillCameraList() {
+  const sel = $("cameraSelect");
+  const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+  const current = stream && stream.getVideoTracks()[0]?.getSettings().deviceId;
+  sel.innerHTML = "";
+  devices.forEach((d, i) => {
+    const o = document.createElement("option");
+    o.value = d.deviceId;
+    o.textContent = d.label || `Camera ${i + 1}`;
+    if (d.deviceId === current) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.disabled = devices.length < 2;
+  sel.hidden = !devices.length;
+}
+
+$("cameraSelect").addEventListener("change", async (e) => {
+  try { await openCamera(e.target.value); } catch (err) { setStatus("Couldn't switch camera: " + err.message, "err"); }
+});
+
+$("startBtn").addEventListener("click", start);
+$("stopBtn").addEventListener("click", stop);
+
+async function start() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setStatus("This browser can't use the camera here. Open the page from a file on this computer or from an https:// address.", "err");
+    return;
+  }
+  $("startBtn").disabled = true;
+  try {
+    setStatus("Waiting for camera permission…", "busy");
+    await openCamera();
+    $("idle").hidden = true;
+    $("stopBtn").hidden = false;
+    fillCameraList().catch(() => {});
+    await Promise.all([initOcr(), loadNames(false)]);
+    running = true;
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
+    setStatus("Scanning", "ok");
+    showReading("No card in the outline", "pending");
+    tick(++loopId);
+  } catch (err) {
+    const msg = err && err.name === "NotAllowedError"
+      ? "Camera access was blocked. Allow the camera for this page in your browser's site settings, then press Start camera."
+      : err && err.name === "NotFoundError" ? "No camera was found."
+      : (err && err.message) || String(err);
+    setStatus(msg, "err");
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    $("stopBtn").hidden = true;
+    $("cameraSelect").hidden = true;
+    $("idle").hidden = false;
+    $("startBtn").disabled = false;
+  }
+}
+
+function stop() {
+  running = false;
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = null;
+  video.srcObject = null;
+  try { wakeLock && wakeLock.release(); } catch (e) {}
+  $("idle").hidden = false;
+  $("startBtn").disabled = false;
+  $("stopBtn").hidden = true;
+  $("cameraSelect").hidden = true;
+  setStatus("Camera stopped", "");
+}
+
+/* ---------- Scanned list ---------- */
+const LIST_KEY = "cns.list.v1";
+let cards = []; // [{name, qty}], most recent first
+try { cards = JSON.parse(store.get(LIST_KEY) || "[]") || []; } catch (e) { cards = []; }
+
+function saveList() { store.set(LIST_KEY, JSON.stringify(cards)); }
+function scryfallUrl(name) { return "https://scryfall.com/search?q=" + encodeURIComponent('!"' + name + '"'); }
+
+function addCard(name) {
+  const i = cards.findIndex((c) => c.name === name);
+  if (i >= 0) { const c = cards.splice(i, 1)[0]; c.qty++; cards.unshift(c); }
+  else cards.unshift({ name, qty: 1 });
+  saveList();
+  renderList(name);
+  try { onCardScanned(name); } catch (e) { console.error(e); }
+}
+
+function renderList(freshName) {
+  const list = $("list");
+  list.innerHTML = "";
+  let total = 0;
+  for (const c of cards) {
+    total += c.qty;
+    const li = document.createElement("li");
+    if (c.name === freshName) li.className = "fresh";
+    const q = document.createElement("span"); q.className = "qty"; q.textContent = c.qty + "×";
+    const a = document.createElement("a"); a.className = "cname"; a.href = scryfallUrl(c.name);
+    a.target = "_blank"; a.rel = "noopener"; a.textContent = c.name; a.title = "Look up on Scryfall";
+    const btns = document.createElement("span"); btns.className = "rowbtns";
+    const minus = document.createElement("button"); minus.type = "button"; minus.textContent = "−";
+    minus.setAttribute("aria-label", "Remove one " + c.name);
+    minus.addEventListener("click", () => {
+      c.qty--; if (c.qty <= 0) cards = cards.filter((x) => x !== c);
+      saveList(); renderList();
+    });
+    const plus = document.createElement("button"); plus.type = "button"; plus.textContent = "+";
+    plus.setAttribute("aria-label", "Add one " + c.name);
+    plus.addEventListener("click", () => { c.qty++; saveList(); renderList(); });
+    btns.append(minus, plus);
+    li.append(q, a, btns);
+    list.appendChild(li);
+  }
+  $("total").textContent = `${total} card${total === 1 ? "" : "s"}`;
+  $("empty").hidden = cards.length > 0;
+}
+renderList();
+
+function listText() { return cards.map((c) => `${c.qty} ${c.name}`).join("\n"); }
+
+$("copyBtn").addEventListener("click", async () => {
+  const btn = $("copyBtn");
+  try { await navigator.clipboard.writeText(listText()); btn.textContent = "Copied"; }
+  catch (e) { btn.textContent = "Copy failed"; }
+  setTimeout(() => (btn.textContent = "Copy list"), 1400);
+});
+$("downloadBtn").addEventListener("click", () => {
+  const blob = new Blob([listText() + "\n"], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "scanned-cards.txt";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+$("clearBtn").addEventListener("click", () => { if (cards.length) $("clearConfirm").hidden = false; });
+$("clearNo").addEventListener("click", () => ($("clearConfirm").hidden = true));
+$("clearYes").addEventListener("click", () => {
+  cards = []; saveList(); renderList(); $("clearConfirm").hidden = true;
+  present = null; candidate = null; candidateHits = 0;
+});
+
+/* ---------- Settings ---------- */
+const settingsBtn = $("settingsBtn"), settingsPanel = $("settingsPanel");
+function setSettingsOpen(open) {
+  settingsPanel.hidden = !open;
+  settingsBtn.setAttribute("aria-expanded", String(open));
+}
+settingsBtn.addEventListener("click", (e) => { e.stopPropagation(); setSettingsOpen(settingsPanel.hidden); });
+document.addEventListener("click", (e) => {
+  if (!settingsPanel.hidden && !settingsPanel.contains(e.target)) setSettingsOpen(false);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !settingsPanel.hidden) { setSettingsOpen(false); settingsBtn.focus(); }
+});
+// Both start on; a choice you change is remembered in this browser.
+for (const id of ["soundToggle", "splitToggle"]) {
+  const box = $(id);
+  const saved = store.get("cns." + id);
+  if (saved !== null) box.checked = saved === "1";
+  box.addEventListener("change", () => store.set("cns." + id, box.checked ? "1" : "0"));
+}
+</script>
+</body>
+</html>
