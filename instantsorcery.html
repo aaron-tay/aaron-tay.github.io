@@ -3,51 +3,84 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Card Name Scanner</title>
-<meta name="theme-color" content="#111916">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111916'/%3E%3Crect x='17' y='8.5' width='30' height='47' rx='3.5' fill='none' stroke='%23e4ebe7' stroke-width='3'/%3E%3Crect x='20.5' y='13' width='23' height='7.5' rx='2' fill='%23f2c661'/%3E%3Crect x='20.5' y='24' width='23' height='14' rx='1.5' fill='%23e4ebe7' fill-opacity='.28'/%3E%3Crect x='20.5' y='41.5' width='23' height='2.6' rx='1.3' fill='%23e4ebe7' fill-opacity='.28'/%3E%3Crect x='20.5' y='46.5' width='15' height='2.6' rx='1.3' fill='%23e4ebe7' fill-opacity='.28'/%3E%3C/svg%3E">
-<link rel="apple-touch-icon" href="data:image/png;base64,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">
+<title>InstantSorcery</title>
+<meta name="application-name" content="InstantSorcery">
+<meta name="apple-mobile-web-app-title" content="InstantSorcery">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#FAF8F3">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1C1A17">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231C1A17'/%3E%3Crect x='17' y='8.5' width='30' height='47' rx='3.5' fill='none' stroke='%23EFEBDF' stroke-width='3'/%3E%3Crect x='20.5' y='13' width='23' height='7.5' rx='2' fill='%23B5822C'/%3E%3Crect x='20.5' y='24' width='23' height='14' rx='1.5' fill='%236F685C'/%3E%3Crect x='20.5' y='41.5' width='23' height='2.6' rx='1.3' fill='%236F685C'/%3E%3Crect x='20.5' y='46.5' width='15' height='2.6' rx='1.3' fill='%236F685C'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/png;base64,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">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya:wght@500;700&family=Alegreya+Sans:wght@400;500;700&display=swap">
 <style>
 /* Layout: camera stage with a card-shaped guide on the left, the scan log on the right; stacks on phones */
 :root {
-  --bg: #e7ece9;
-  --surface: #f7f9f8;
-  --ink: #16201b;
-  --muted: #59675f;
-  --line: #cdd7d1;
-  --stage: #111916;
-  --accent: #9a6514;
-  --accent-ink: #ffffff;
-  --ok: #2c7a4b;
-  --warn: #a2432c;
-  --danger: #b42318;
+  /* InstantSorcery palette: stock, inks and tints */
+  --p-bright: #FAF8F3;  --p-cream: #EFEBDF;  --p-laid: #E3DED1;
+  --p-rule: #CBC4B4;    --p-graphite: #6F685C; --p-ink: #1C1A17;
+  --p-ochre: #B5822C;   --p-ochre-30: #E9D5B0; --p-ochre-15: #F2E6D0;
+  --p-rubine: #9E2B2B;  --p-rubine-30: #E2C1C1;
+  --p-bottle: #3F6B45;  --p-bottle-30: #C3D4C3;
+  --p-vermilion: #A94A18; --p-vermilion-30: #E9C4AD;
+
+  /* What the page uses (light) */
+  --bg: var(--p-cream);
+  --surface: var(--p-bright);
+  --field: var(--p-laid);
+  --ink: var(--p-ink);
+  --muted: var(--p-graphite);
+  --line: var(--p-rule);
+  --stage: var(--p-ink);
+  --accent: var(--p-ochre);        /* primary */
+  --accent-ink: var(--p-ink);      /* text on ochre: ink reads far better than white */
+  --ok: var(--p-bottle);
+  --warn: var(--p-vermilion);
+  --danger: var(--p-rubine);
+  --shadow: rgba(28, 26, 23, .18);
+  /* A faint paper grain for the page and panels: fine grain plus fibres
+     stretched sideways, from tileable noise. */
+  --paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.11 0 0 0 0 0.1 0 0 0 0 0.09 0.09 0 0 0 -0.032'/%3E%3C/filter%3E%3Cfilter id='f' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.22' numOctaves='2' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.11 0 0 0 0 0.1 0 0 0 0 0.09 0.055 0 0 0 -0.022'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+
+  /* Over the camera, which is dark in both themes */
+  --cam-text: var(--p-bright);
+  --cam-dim: var(--p-rule);
+  --cam-glass: rgba(28, 26, 23, .72);
+  --cam-edge: rgba(250, 248, 243, .22);
+  --cam-edge-hover: rgba(250, 248, 243, .5);
+  --cam-accent: var(--p-ochre-30);
+  --cam-ok: var(--p-bottle-30);
+  --cam-err: var(--p-rubine-30);
+
   --font-name: "Alegreya", Georgia, "Times New Roman", serif;
   --font-ui: "Alegreya Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   color-scheme: light;
 }
+/* Dark: the palette has no dark stock, so the surfaces are Ink deepened or
+   lifted a little toward Graphite, and coloured text uses the 30% tints. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0e1412;
-    --surface: #161e1b;
-    --ink: #e4ebe7;
-    --muted: #91a198;
-    --line: #29342f;
-    --stage: #060a09;
-    --accent: #dba54a;
-    --accent-ink: #1b1306;
-    --ok: #5cc48b;
-    --warn: #e57f63;
-    --danger: #f97066;
+    --bg: var(--p-ink);
+    --surface: #2D2A25;
+    --field: #3D3933;
+    --ink: var(--p-cream);
+    --muted: var(--p-rule);
+    --line: #3D3933;
+    --stage: #141210;
+    --accent: var(--p-ochre);
+    --accent-ink: var(--p-ink);
+    --ok: var(--p-bottle-30);
+    --warn: var(--p-vermilion-30);
+    --danger: var(--p-rubine-30);
+    --shadow: rgba(0, 0, 0, .45);
+    --paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.98 0 0 0 0 0.97 0 0 0 0 0.95 0.065 0 0 0 -0.024'/%3E%3C/filter%3E%3Cfilter id='f' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.22' numOctaves='2' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.98 0 0 0 0 0.97 0 0 0 0 0.95 0.04 0 0 0 -0.015'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
     color-scheme: dark;
   }
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
-  background: var(--bg);
+  background: var(--bg) var(--paper); /* scrolls with the page */
   color: var(--ink);
   font: 16px/1.45 var(--font-ui);
   min-height: 100vh;
@@ -74,6 +107,18 @@ button.primary {
   border-color: var(--accent);
   font-weight: 700;
   padding: 10px 18px;
+  transition: background-color .12s, border-color .12s, box-shadow .12s, transform .06s;
+}
+button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 82%, var(--p-bright));
+  border-color: color-mix(in srgb, var(--accent) 82%, var(--p-bright));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+button.primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--p-ink));
+  border-color: color-mix(in srgb, var(--accent) 88%, var(--p-ink));
+  box-shadow: none;
+  transform: translateY(1px);
 }
 select {
   border: 1px solid var(--line);
@@ -85,7 +130,7 @@ select {
 
 /* Header bar: slim, full width, set off by a border */
 .bar {
-  background: var(--surface);
+  background: var(--surface) var(--paper);
   border-bottom: 1px solid var(--line);
   padding-top: env(safe-area-inset-top, 0px);
 }
@@ -107,7 +152,11 @@ h1 {
   font-size: 1.2rem;
   line-height: 1.1;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
 }
+.brand-icon { width: 28px; height: 28px; flex: none; display: block; border-radius: 6px; }
 .settings-wrap { position: relative; }
 .icon-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: .9rem; }
 .icon-btn svg { width: 17px; height: 17px; flex: none; }
@@ -122,10 +171,10 @@ h1 {
   flex-direction: column;
   gap: 10px;
   padding: 12px 14px;
-  background: var(--surface);
+  background: var(--surface) var(--paper);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+  box-shadow: 0 8px 24px var(--shadow);
 }
 .settings .toggle { display: flex; align-items: center; gap: 9px; cursor: pointer; }
 .settings .toggle input { width: 17px; height: 17px; margin: 0; accent-color: var(--accent); }
@@ -140,7 +189,7 @@ h1 {
 }
 .settings-section p { margin: 0; }
 .settings-title { color: var(--ink); font-weight: 700; font-size: .92rem; }
-.settings-section .row { display: flex; flex-wrap: wrap; gap: 6px; }
+.settings-section .settings-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .settings-section button, .file-btn { padding: 5px 10px; font-size: .88rem; }
 .file-btn {
   display: inline-block;
@@ -203,8 +252,8 @@ h1 {
 .stage video { object-fit: cover; }
 .stage svg { pointer-events: none; }
 .guide-band { transition: stroke .15s, fill .15s; }
-.stage.hit .guide-band { stroke: #6fdc9c; fill: rgba(111, 220, 156, .22); }
-.stage.hit .guide-card { stroke: #6fdc9c; }
+.stage.hit .guide-band { stroke: var(--cam-ok); fill: rgba(63, 107, 69, .35); }
+.stage.hit .guide-card { stroke: var(--cam-ok); }
 
 /* A layer exactly over the card outline (placed by placeGuideLayer). Only
    the name band at the top matters for reading, so the camera controls sit
@@ -230,12 +279,12 @@ h1 {
   padding: 0 9px;
   line-height: 24px;
   font-size: .8rem;
-  color: #e4ebe7;
-  background: rgba(8, 12, 10, .72);
-  border: 1px solid rgba(255, 255, 255, .2);
+  color: var(--cam-text);
+  background: var(--cam-glass);
+  border: 1px solid var(--cam-edge);
   border-radius: 8px;
 }
-.chip:hover:not(:disabled) { border-color: rgba(255, 255, 255, .5); }
+.chip:hover:not(:disabled) { border-color: var(--cam-edge-hover); }
 .chip:disabled { opacity: .55; cursor: default; }
 /* A long camera name never pushes Stop off the row: the menu is capped and
    cuts its text short instead. */
@@ -253,7 +302,7 @@ select.chip {
   background-position: right 10px center;
   background-size: 10px 6px;
 }
-select.chip option { color: #16201b; background: #f7f9f8; }
+select.chip option { color: var(--p-ink); background: var(--p-bright); }
 .info-btn {
   /* Pinned to the lower-right corner of the card outline, on its own so the
      camera menu can never push it out of place. The backing and the symbol
@@ -268,11 +317,11 @@ select.chip option { color: #16201b; background: #f7f9f8; }
   border-radius: 8px;
   background: none;
   line-height: 0;
-  color: #e4ebe7;
+  color: var(--cam-text);
 }
 .info-btn svg { display: block; width: 26px; height: 26px; }
-.info-btn .ring { fill: rgba(8, 12, 10, .72); stroke: rgba(255, 255, 255, .2); }
-.info-btn:hover .ring { stroke: rgba(255, 255, 255, .5); }
+.info-btn .ring { fill: var(--cam-glass); stroke: var(--cam-edge); }
+.info-btn:hover .ring { stroke: var(--cam-edge-hover); }
 #stopBtn { flex: none; }
 
 /* Tips modal */
@@ -281,11 +330,11 @@ select.chip option { color: #16201b; background: #f7f9f8; }
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--surface) var(--paper);
   color: var(--ink);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, .3);
+  box-shadow: 0 16px 48px var(--shadow);
 }
-.modal::backdrop { background: rgba(6, 10, 8, .55); }
+.modal::backdrop { background: rgba(28, 26, 23, .55); }
 .modal-inner { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 18px; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .modal h2 { font-size: 1.2rem; }
@@ -315,19 +364,19 @@ button:disabled { opacity: .5; cursor: default; }
   align-items: baseline;
   gap: 8px;
   padding: 10px 10px 6px;
-  background: linear-gradient(to top, rgba(6, 10, 8, .88) 55%, rgba(6, 10, 8, 0));
-  color: #e4ebe7;
+  background: linear-gradient(to top, rgba(28, 26, 23, .9) 55%, rgba(28, 26, 23, 0));
+  color: var(--cam-text);
   font-size: .85rem;
   line-height: 1.3;
 }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: #93a29b; flex: none; align-self: center; }
-.dot.ok { background: #5cc48b; }
-.dot.busy { background: #e2ad55; }
-.dot.err { background: #ef8a6e; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cam-dim); flex: none; align-self: center; }
+.dot.ok { background: var(--cam-ok); }
+.dot.busy { background: var(--p-ochre); }
+.dot.err { background: var(--cam-err); }
 .current { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.current.pending { color: #b8c6be; font-style: italic; }
-.current.confirmed { color: #f2c661; font-weight: 700; }
-.ms { margin-left: auto; flex: none; color: #b8c6be; font-variant-numeric: tabular-nums; }
+.current.pending { color: var(--cam-dim); font-style: italic; }
+.current.confirmed { color: var(--cam-accent); font-weight: 700; }
+.ms { margin-left: auto; flex: none; color: var(--cam-dim); font-variant-numeric: tabular-nums; }
 
 .idle {
   /* Fills the card outline; text scales with it. */
@@ -341,13 +390,13 @@ button:disabled { opacity: .5; cursor: default; }
   padding: 3.5em 1.1em 2.5em; /* clears the bright band at the top and the controls at the bottom */
   text-align: center;
   font-size: clamp(12px, 4.4cqi, 16px); /* the outline is about 88% of the stage's width */
-  color: #e4ebe7;
+  color: var(--cam-text);
 }
-.idle p { margin: 0; line-height: 1.35; color: #c3cfc8; overflow-wrap: break-word; }
+.idle p { margin: 0; line-height: 1.35; color: var(--p-laid); overflow-wrap: break-word; }
 .idle button.primary { font-size: inherit; padding: 0.65em 1.2em; white-space: nowrap; }
 
 .log {
-  background: var(--surface);
+  background: var(--surface) var(--paper);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 14px 16px 16px;
@@ -389,10 +438,10 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
   display: flex;
   flex-direction: column;
   padding: 4px;
-  background: var(--surface);
+  background: var(--surface) var(--paper);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+  box-shadow: 0 8px 24px var(--shadow);
 }
 .menu button {
   width: 100%;
@@ -414,7 +463,7 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
   padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--bg);
+  background: var(--field);
   font-size: 1rem; /* 16px or more stops iPhones zooming in on focus */
 }
 .search::placeholder { color: var(--muted); }
@@ -425,6 +474,9 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
 .list {
   --row-h: 44px;
   position: relative;
+  /* Its own grain, attached to the content so it moves with the rows. */
+  background: var(--surface) var(--paper);
+  background-attachment: local;
   max-height: 56vh;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -457,7 +509,7 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
 
 /* Footer bar with the legal notice */
 .site-foot {
-  background: var(--surface);
+  background: var(--surface) var(--paper);
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -494,7 +546,7 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
   overflow: hidden;
   background: var(--ink);
   color: var(--surface);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
+  box-shadow: 0 8px 24px var(--shadow);
   font-size: .92rem;
   animation: toast-in .18s ease-out;
 }
@@ -533,7 +585,7 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
 <body>
 <header class="bar">
   <div class="bar-inner">
-    <h1>Card Name Scanner</h1>
+    <h1><img class="brand-icon" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231C1A17'/%3E%3Crect x='17' y='8.5' width='30' height='47' rx='3.5' fill='none' stroke='%23EFEBDF' stroke-width='3'/%3E%3Crect x='20.5' y='13' width='23' height='7.5' rx='2' fill='%23B5822C'/%3E%3Crect x='20.5' y='24' width='23' height='14' rx='1.5' fill='%236F685C'/%3E%3Crect x='20.5' y='41.5' width='23' height='2.6' rx='1.3' fill='%236F685C'/%3E%3Crect x='20.5' y='46.5' width='15' height='2.6' rx='1.3' fill='%236F685C'/%3E%3C/svg%3E" alt="" width="28" height="28">InstantSorcery</h1>
     <div class="settings-wrap">
       <button type="button" class="icon-btn" id="settingsBtn" aria-expanded="false" aria-controls="settingsPanel">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -548,7 +600,7 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
         <div class="settings-section">
           <div class="settings-title">Card name list</div>
           <p id="namesInfo">Downloaded from Scryfall when you start, then kept in this browser for a week.</p>
-          <div class="row">
+          <div class="settings-actions">
             <button type="button" id="refreshNames">Refresh from Scryfall</button>
             <input type="file" id="namesFile" class="visually-hidden" accept=".txt,.csv,.json,text/plain,text/csv,application/json">
             <label class="file-btn" for="namesFile">Use my own list</label>
@@ -621,7 +673,7 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
 
 <footer class="site-foot">
   <div class="site-foot-inner">
-    <p>Card Name Scanner is unofficial Fan Content permitted under the <a href="https://company.wizards.com/en/legal/fancontentpolicy" target="_blank" rel="noopener">Fan Content Policy</a>. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.</p>
+    <p>InstantSorcery is unofficial Fan Content permitted under the <a href="https://company.wizards.com/en/legal/fancontentpolicy" target="_blank" rel="noopener">Fan Content Policy</a>. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.</p>
     <p>Card names from <a href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a>.</p>
   </div>
 </footer>
@@ -1035,6 +1087,8 @@ function setStatus(text, kind) {
   $("meta").textContent = "";
 }
 /* ---------- Card names ---------- */
+// Storage keys keep their original "cns." prefix, so saved lists and
+// settings carry over from before the app was renamed.
 const NAMES_KEY = "cns.names.v1";
 const WEEK = 7 * 24 * 3600 * 1000;
 let index = null;
@@ -1140,11 +1194,11 @@ function drawOverlay(vw, vh) {
   overlay.innerHTML = `
     <defs><mask id="hole"><rect width="${vw}" height="${vh}" fill="#fff"/>
       <rect x="${g.x}" y="${g.y}" width="${g.w}" height="${g.h}" rx="${rx}" fill="#000"/></mask></defs>
-    <rect width="${vw}" height="${vh}" fill="rgba(0,0,0,0.5)" mask="url(#hole)"/>
+    <rect width="${vw}" height="${vh}" fill="rgba(28,26,23,0.5)" mask="url(#hole)"/>
     <rect class="guide-card" x="${g.x}" y="${g.y}" width="${g.w}" height="${g.h}" rx="${rx}"
-      fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="${sw}"/>
+      fill="none" stroke="rgba(250,248,243,0.85)" stroke-width="${sw}"/>
     <rect class="guide-band" x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="${bh * 0.18}"
-      fill="rgba(255,214,120,0.14)" stroke="#f2c661" stroke-width="${sw}"/>`;
+      fill="rgba(181,130,44,0.16)" stroke="#E9D5B0" stroke-width="${sw}"/>`;
   shownSize = [vw, vh];
   placeGuideLayer();
 }
@@ -2511,7 +2565,7 @@ function downloadFile(file) {
 $("exportBtn").addEventListener("click", () => {
   closeListMenu(false);
   if (!cards.length) return; // the menu item is disabled when the list is empty
-  const file = new File([collectionCsv(cards)], `card-collection-${todayStamp()}.csv`, { type: "text/csv" });
+  const file = new File([collectionCsv(cards)], `instantsorcery-collection-${todayStamp()}.csv`, { type: "text/csv" });
   const phone = window.matchMedia && matchMedia("(pointer: coarse)").matches;
   if (phone && navigator.canShare && navigator.canShare({ files: [file] })) {
     navigator.share({ files: [file], title: file.name }).catch((e) => {
