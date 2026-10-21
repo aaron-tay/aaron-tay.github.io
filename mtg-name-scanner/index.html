@@ -23,6 +23,7 @@
   --accent-ink: #ffffff;
   --ok: #2c7a4b;
   --warn: #a2432c;
+  --danger: #b42318;
   --font-name: "Alegreya", Georgia, "Times New Roman", serif;
   --font-ui: "Alegreya Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   color-scheme: light;
@@ -39,6 +40,7 @@
     --accent-ink: #1b1306;
     --ok: #5cc48b;
     --warn: #e57f63;
+    --danger: #f97066;
     color-scheme: dark;
   }
 }
@@ -291,6 +293,16 @@ select.chip option { color: #16201b; background: #f7f9f8; }
 .modal p { margin: 0; }
 .modal .muted { color: var(--muted); font-size: .9rem; }
 .modal-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
+.modal-actions.end { justify-content: flex-end; }
+/* A destructive action: red outline, never a filled button. */
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: transparent;
+  font-weight: 700;
+}
+button.danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); border-color: var(--danger); }
+button:disabled { opacity: .5; cursor: default; }
 
 /* Reading line along the bottom edge, below the outline */
 .stage-foot {
@@ -348,13 +360,19 @@ select.chip option { color: #16201b; background: #f7f9f8; }
 h2 { margin: 0; font-family: var(--font-name); font-size: 1.3rem; font-weight: 700; }
 h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; font-size: 1rem; font-variant-numeric: tabular-nums; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.actions button { padding: 5px 10px; font-size: .9rem; }
+/* Buttons in a row of actions share one fixed height, so Clear and the
+   ⋮ button line up exactly. (Not the items inside the ⋮ menu.) */
+.actions > button, .actions .kebab {
+  height: 32px;
+  padding: 0 10px;
+  font-size: .9rem;
+  line-height: 1;
+}
 
 /* ⋮ menu holding Copy list, Export and Import */
 .menu-wrap { position: relative; }
-.kebab {
+.actions .kebab {
   width: 32px;
-  height: 30px;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -597,11 +615,6 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
     <div class="list" id="list" role="list" aria-label="Scanned cards">
       <div class="list-spacer" id="listSpacer"></div>
     </div>
-    <div class="actions" id="clearConfirm" hidden>
-      <span>Clear all scanned cards?</span>
-      <button type="button" id="clearYes">Clear</button>
-      <button type="button" id="clearNo">Keep</button>
-    </div>
 
   </aside>
 </main>
@@ -618,6 +631,17 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
   <button type="button" id="toastUndo">Undo</button>
   <span class="toast-timer" id="toastTimer" aria-hidden="true"></span>
 </div>
+
+<dialog class="modal" id="clearDialog" aria-labelledby="clearTitle">
+  <div class="modal-inner">
+    <h2 id="clearTitle">Clear all cards?</h2>
+    <p class="muted">Every card is removed from your list. You can undo this for 10 seconds afterwards.</p>
+    <div class="modal-actions end">
+      <button type="button" id="clearNo" autofocus>Cancel</button>
+      <button type="button" class="danger" id="clearYes">Clear</button>
+    </div>
+  </div>
+</dialog>
 
 <dialog class="modal" id="importDialog" aria-labelledby="importTitle">
   <div class="modal-inner">
@@ -731,7 +755,62 @@ function buildIndex(names) {
       add(normName(name), name, false);
     }
   }
-  return { exact, entries, size: names.length };
+  const index = { exact, entries, size: names.length };
+  buildBigrams(index);
+  return index;
+}
+
+/* ---------- Two-letter pieces, to skip hopeless names quickly ----------
+   Each mistake in a reading can spoil at most two of a name's two-letter
+   pieces. So a name with B different pieces, allowed D mistakes, must share
+   at least B - 2D pieces with the reading, or it can't be a match. Counting
+   shared pieces through a lookup table is far quicker than measuring the
+   distance to every one of ~30,000 names. */
+const BG_CHARS = 37; // a-z, 0-9 and space: all that normName leaves
+function bgCode(c) { return c === 32 ? 36 : c <= 57 ? c - 48 + 26 : c - 97; }
+function bigramsOf(s, out) {
+  out.length = 0;
+  for (let i = 0; i + 1 < s.length; i++) {
+    const g = bgCode(s.charCodeAt(i)) * BG_CHARS + bgCode(s.charCodeAt(i + 1));
+    if (!out.includes(g)) out.push(g);
+  }
+  return out;
+}
+function buildBigrams(index) {
+  const n = BG_CHARS * BG_CHARS, tmp = [];
+  const lists = [Array.from({ length: n }, () => []), Array.from({ length: n }, () => [])];
+  index.loose = [[], []]; // names short enough that the shortcut can't rule them out
+  index.entries.forEach((e, id) => {
+    [e.key, e.keyNs].forEach((key, which) => {
+      bigramsOf(key, tmp);
+      // (Cheap look-alike swaps can fit a few more edits within the limit
+      // than this allows for, but loosening it made lookups 4 times slower
+      // for no gain in testing.)
+      const need = tmp.length - 2 * maxDist(key.length);
+      if (which === 0) e.need = need; else e.needNs = need;
+      if (need <= 0) index.loose[which].push(id);
+      for (const g of tmp) lists[which][g].push(id);
+    });
+  });
+  index.bigrams = lists.map((l) => l.map((ids) => Int32Array.from(ids)));
+  index.counts = new Uint16Array(index.entries.length);
+}
+// The ids of names that could be within their allowed mistakes of text.
+function candidateIds(index, text, which) {
+  const counts = index.counts, lists = index.bigrams[which], touched = [];
+  for (const g of bigramsOf(text, [])) {
+    const ids = lists[g];
+    for (let j = 0; j < ids.length; j++) if (counts[ids[j]]++ === 0) touched.push(ids[j]);
+  }
+  const out = [], mark = index.mark || (index.mark = new Uint8Array(index.entries.length));
+  for (const id of touched) {
+    const e = index.entries[id];
+    if (counts[id] >= (which === 0 ? e.need : e.needNs)) { out.push(id); mark[id] = 1; }
+    counts[id] = 0;
+  }
+  for (const id of index.loose[which]) if (!mark[id]) out.push(id);
+  for (const id of out) mark[id] = 0;
+  return out.sort((a, b) => a - b); // list order, so ties resolve as without the shortcut
 }
 
 const _rowA = new Int32Array(256), _rowB = new Int32Array(256);
@@ -740,33 +819,48 @@ const _rowA = new Int32Array(256), _rowB = new Int32Array(256);
 // text after the name (usually the mana cost) is ignored, but only if it
 // starts at a word break, so "Fireball" never matches the split half "Fire".
 // anyTail ignores extra text wherever it starts, for text with spaces removed.
+// Costs in quarters of a mistake, so the table can stay in whole numbers.
+// Letters that look alike in print, especially in the ornate lettering of
+// old cards, cost half a mistake to swap: e read as c, i as l, f as t.
+const EDIT = 4, LOOKALIKE = 2;
+const LOOKALIKE_PAIRS = ["ce", "eo", "ao", "co", "ae", "ad", "il", "ij", "lt", "ft", "nu", "nh", "hb", "uv", "vy", "vw", "gq", "rn", "mn", "cg", "bd"];
+const _swapCost = new Uint8Array(128 * 128).fill(EDIT);
+for (let c = 0; c < 128; c++) _swapCost[c * 128 + c] = 0;
+for (const [a, b] of LOOKALIKE_PAIRS) {
+  _swapCost[a.charCodeAt(0) * 128 + b.charCodeAt(0)] = LOOKALIKE;
+  _swapCost[b.charCodeAt(0) * 128 + a.charCodeAt(0)] = LOOKALIKE;
+}
+// The first letters of a name are the ones most often lost (an ornate
+// capital, or the frame's edge), so up to three missing there cost half each.
+function leadCost(i) { return i <= 3 ? 2 * i : 6 + EDIT * (i - 3); }
+
 let _matchEnd = 0; // where in the text the last prefixDistance match ended
 function prefixDistance(name, text, limit, anyTail) {
-  const L = name.length, M = Math.min(text.length, 255);
-  if (L - M > limit) return limit + 1;
+  const L = name.length, M = Math.min(text.length, 255), lim = limit * EDIT;
+  if (L > M && leadCost(L - M) > lim) return limit + 1;
   let prev = _rowA, cur = _rowB;
-  for (let j = 0; j <= M; j++) prev[j] = j;
+  for (let j = 0; j <= M; j++) prev[j] = j * EDIT;
   for (let i = 1; i <= L; i++) {
-    cur[0] = i;
-    let rowMin = i;
-    const c = name.charCodeAt(i - 1);
+    cur[0] = leadCost(i);
+    let rowMin = cur[0];
+    const row = (name.charCodeAt(i - 1) & 127) * 128;
     for (let j = 1; j <= M; j++) {
-      const sub = prev[j - 1] + (c === text.charCodeAt(j - 1) ? 0 : 1);
-      const del = prev[j] + 1;
-      const ins = cur[j - 1] + 1;
+      const sub = prev[j - 1] + _swapCost[row + (text.charCodeAt(j - 1) & 127)];
+      const del = prev[j] + EDIT;
+      const ins = cur[j - 1] + EDIT;
       const v = sub < del ? (sub < ins ? sub : ins) : (del < ins ? del : ins);
       cur[j] = v;
       if (v < rowMin) rowMin = v;
     }
-    if (rowMin > limit) return limit + 1;
+    if (rowMin > lim) return limit + 1;
     const t = prev; prev = cur; cur = t;
   }
   let best = prev[M];
   _matchEnd = M;
-  for (let j = Math.max(1, L - limit); j < M; j++) {
+  for (let j = Math.max(1, L - 2 * limit); j < M; j++) {
     if ((anyTail || text.charCodeAt(j) === 32) && prev[j] < best) { best = prev[j]; _matchEnd = j; }
   }
-  return best;
+  return best / EDIT;
 }
 
 // Text left over after a name is usually the mana cost read as short junk
@@ -774,11 +868,25 @@ function prefixDistance(name, text, limit, anyTail) {
 // read: "_____ Goblin" reads as just "goblin", and must not win over
 // "Goblin War Drums" by ignoring "war drums". So leftover pieces of three or
 // more letters count against a match.
-function leftoverPenalty(rest, anyTail) {
-  if (anyTail) return rest.length >= 3 ? rest.length * 0.5 : 0;
+// short: also give one- and two-letter leftovers (usually a misread mana
+// cost) a small cost, so that between two close matches the one that
+// explains all the text wins: "Wastel sd" is Wasteland, not Wastes.
+function leftoverPenalty(rest, anyTail, short) {
+  if (anyTail) return rest.length >= 3 ? rest.length * 0.5 : short ? rest.length * 0.25 : 0;
   let pen = 0;
-  for (const tok of rest.split(" ")) if (tok.length >= 3) pen += tok.length * 0.5;
+  for (const tok of rest.split(" ")) {
+    if (tok.length >= 3) pen += tok.length * 0.5;
+    else if (short) pen += tok.length * 0.25;
+  }
   return pen;
+}
+
+// Which names a reading may match. Sideways reads (splitOnly) are halves of
+// split cards, or two halves joined. An upright reading never shows a split
+// card's two names on one line, so it can match a single half or face, but
+// never the joined name: "Fire Ce" is not "Fire // Ice".
+function allowedEntry(e, splitOnly) {
+  return splitOnly ? e.split : !(e.split && !e.half);
 }
 
 // Finds the card name that best explains a line of OCR text.
@@ -796,12 +904,17 @@ function matchText(index, raw, opts) {
     variants.push(toks.join(" "));
   }
 
-  let best = null;
-  // Lower is better: letters corrected, plus leftover words, per letter of name.
+  let best = null, second = null;
+  // Lower is better: letters corrected, plus leftover words, per letter of
+  // name. The runner-up is the best match for a different card.
   const consider = (e, d, L, pen) => {
     const score = (d + pen) / L;
+    const m = { name: e.name, key: e.key, dist: d, half: e.half, score, text: t };
     if (!best || score < best.score || (score === best.score && L > best.key.length)) {
-      best = { name: e.name, key: e.key, dist: d, half: e.half, score, text: t };
+      if (best && best.name !== e.name) second = best;
+      best = m;
+    } else if (e.name !== best.name && (!second || score < second.score)) {
+      second = m;
     }
   };
 
@@ -812,24 +925,32 @@ function matchText(index, raw, opts) {
     const words = v.split(" ");
     for (let k = words.length; k >= 1; k--) {
       const e = index.exact.get(words.slice(0, k).join(" "));
-      if (!e || (splitOnly && !e.split) || e.key.length < 3) continue;
+      if (!e || !allowedEntry(e, splitOnly) || e.key.length < 3) continue;
+      // A short half-name read upright on its own ("Fire", "Ice", "Cut") is
+      // more likely the start of another card ("Fire Covenant" with glare
+      // over "Covenant"). Split cards are read sideways, where it counts.
+      if (e.half && !splitOnly && e.key.length < 5) continue;
       const pen = leftoverPenalty(words.slice(k).join(" "), false);
-      if (pen === 0) return { name: e.name, key: e.key, dist: 0, half: e.half, text: t };
+      if (pen === 0) return { name: e.name, key: e.key, dist: 0, half: e.half, text: t, exact: true };
       consider(e, 0, e.key.length, pen);
       break;
     }
   }
+  // Every variant is the end of the full reading, so names that could match
+  // the full reading include all that could match any variant.
+  const ids = candidateIds(index, t, 0);
   for (const v of variants) {
     const M = v.length;
     const have = letterCounts(v);
-    for (const e of index.entries) {
-      if (splitOnly && !e.split) continue;
+    for (const id of ids) {
+      const e = index.entries[id];
+      if (!allowedEntry(e, splitOnly)) continue;
       const L = e.key.length;
       const lim = maxDist(L);
       if (lim === 0 || L - M > lim) continue;
-      if (missingLetters(e.counts, have, lim) > lim) continue;
+      if (missingLetters(e.counts, have, 2 * lim) > 2 * lim) continue;
       const d = prefixDistance(e.key, v, lim, false);
-      if (d <= lim) consider(e, d, L, leftoverPenalty(v.slice(_matchEnd).trim(), false));
+      if (d <= lim) consider(e, d, L, leftoverPenalty(v.slice(_matchEnd).trim(), false, true));
     }
   }
   // Letters read with stray spaces ("Rhys t ic S t ud y"): compare with all
@@ -837,18 +958,64 @@ function matchText(index, raw, opts) {
   if (!best || best.dist > 0) {
     const ns = variants[variants.length - 1].replace(/ /g, "");
     const have = letterCounts(ns);
-    for (const e of index.entries) {
-      if (splitOnly && !e.split) continue;
+    for (const id of candidateIds(index, ns, 1)) {
+      const e = index.entries[id];
+      if (!allowedEntry(e, splitOnly)) continue;
       const L = e.keyNs.length;
       if (L < 8) continue;
       const lim = maxDist(L);
       if (L - ns.length > lim) continue;
-      if (missingLetters(e.counts, have, lim) > lim) continue;
+      if (missingLetters(e.counts, have, 2 * lim) > 2 * lim) continue;
       const d = prefixDistance(e.keyNs, ns, lim, true);
-      if (d <= lim) consider(e, d, L, leftoverPenalty(ns.slice(_matchEnd), true));
+      if (d <= lim) consider(e, d, L, leftoverPenalty(ns.slice(_matchEnd), true, true));
     }
   }
+  // A match that leaves much of the reading unexplained is no match:
+  // "Plomougar Elecs poe" is not a card whose name is just "Lomorgar".
+  if (best && best.score > WEAKEST) return null;
+  // A close call between two different cards is left undecided rather than
+  // guessed: the next read usually settles it.
+  if (best && best.score > 0 && second && second.score - best.score < CLOSE_CALL) return null;
+  if (!best) return completeName(index, variants, splitOnly, t);
   return best;
+}
+
+// Two candidates closer than this (in mistakes per letter) are a close call.
+const CLOSE_CALL = 0.04;
+// Matches scoring worse than this (mistakes plus unexplained text, per
+// letter of the name) are rejected.
+const WEAKEST = 0.35;
+// Matches at least this good count as solid: see agreed() in the scan loop.
+// (0.1 was safe but missed cards; 0.2 let one wrong card through in testing.)
+const SOLID = 0.15;
+
+// A read that stops early ("Swords to Plow") is completed when exactly one
+// card name starts with it. At least six letters are needed, and if several
+// names start that way ("Lightning") nothing is guessed.
+function completeName(index, variants, splitOnly, t) {
+  if (!index.sorted) index.sorted = index.entries.slice().sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const keys = index.sorted;
+  for (const v of variants) {
+    const tries = [v];
+    const lastSpace = v.lastIndexOf(" ");
+    if (lastSpace > 0 && v.length - lastSpace - 1 <= 2) tries.push(v.slice(0, lastSpace)); // drop a stray letter or two
+    for (const p of tries) {
+      if (p.replace(/ /g, "").length < 6) continue;
+      let lo = 0, hi = keys.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (keys[mid].key < p) lo = mid + 1; else hi = mid; }
+      const found = new Map();
+      for (let i = lo; i < keys.length && keys[i].key.startsWith(p); i++) {
+        const e = keys[i];
+        if (e.key.length > p.length && allowedEntry(e, splitOnly)) found.set(e.name, e);
+        if (found.size > 1) return null; // several cards start this way
+      }
+      if (found.size === 1) {
+        const e = [...found.values()][0];
+        return { name: e.name, key: e.key, dist: 0, half: e.half, text: t, truncated: true, score: ((e.key.length - p.length) * 0.25) / e.key.length };
+      }
+    }
+  }
+  return null;
 }
 /* ===================== MATCHER END ===================== */
 
@@ -960,6 +1127,8 @@ function guideRect(vw, vh) {
 }
 // Name band as a fraction of the card: top of the card, inside the frame.
 const BAND = { x0: 0.04, x1: 0.96, y0: 0.015, y1: 0.14 };
+// The name ends at the first gap wider than this many times the bar's height.
+const TRIM_GAP = 1.0;
 
 function drawOverlay(vw, vh) {
   overlay.setAttribute("viewBox", `0 0 ${vw} ${vh}`);
@@ -1003,9 +1172,11 @@ drawOverlay(1280, 960);
 /* ---------- Canvases ---------- */
 const CW = 630, CH = 880;
 const cardCv = document.createElement("canvas"); cardCv.width = CW; cardCv.height = CH;
-const cardCx = cardCv.getContext("2d", { willReadFrequently: true });
+// The card and rotated copies are only drawn from, never read pixel by pixel,
+// so they stay on the graphics chip, which scales camera frames far faster.
+const cardCx = cardCv.getContext("2d");
 const rotCv = document.createElement("canvas"); rotCv.width = CH; rotCv.height = CW;
-const rotCx = rotCv.getContext("2d", { willReadFrequently: true });
+const rotCx = rotCv.getContext("2d");
 const bandCv = document.createElement("canvas");
 const bandCx = bandCv.getContext("2d", { willReadFrequently: true });
 const thumbCv = document.createElement("canvas"); thumbCv.width = 24; thumbCv.height = 34;
@@ -1066,6 +1237,9 @@ function removeThinShapes(ink, w, h) {
     // dark frame texture that reaches the edge.
     const edge = minX === 0 || maxX === w - 1 || minY === 0 || maxY === h - 1;
     if (edge && (bw > w * 0.45 || bh > h * 0.8)) { for (const i of pixels) ink[i] = 0; continue; }
+    // The title bar's whole outline, kept as one hollow loop: wider and
+    // taller than any letter, with little ink inside its bounds.
+    if (bw > w * 0.6 && bh > h * 0.5 && pixels.length < bw * bh * 0.2) { for (const i of pixels) ink[i] = 0; continue; }
     // A thin upright line as tall as the whole strip is a bit of side outline.
     if (bh > h * 0.85 && bw < Math.max(4, w * 0.03)) { for (const i of pixels) ink[i] = 0; continue; }
     if (bw < w * 0.2) continue; // narrower than any line we care about
@@ -1088,23 +1262,6 @@ function histPct(hist, count, frac) {
 // just the bar's interior in the band canvas as black text on white, with a
 // white margin, ready for OCR. Returns the crop's contrast: under 30 means a
 // blank area, and -1 means there is something there but no lettering.
-// How cleanly a histogram splits into two groups (Otsu's measure, 0 to 1).
-function separability(hist, count) {
-  let sAll = 0, sq = 0;
-  for (let v = 0; v < 256; v++) { sAll += v * hist[v]; sq += v * v * hist[v]; }
-  const mean = sAll / count, total = sq / count - mean * mean;
-  if (total < 1) return 0;
-  let wB = 0, sB = 0, best = 0;
-  for (let v = 0; v < 256; v++) {
-    wB += hist[v]; if (!wB) continue;
-    const wF = count - wB; if (!wF) break;
-    sB += v * hist[v];
-    const between = wB * wF * (sB / wB - (sAll - sB) / wF) ** 2;
-    if (between > best) best = between;
-  }
-  return best / (count * count * total);
-}
-
 // Whether the lettering is lighter than the bar it sits on. A clearly light
 // bar has dark lettering and a clearly dark one light lettering. For a
 // mid-tone bar (a dim blue frame, say) count the pixels far darker than the
@@ -1124,14 +1281,182 @@ function lightLettering(grey, w, h, top, bottom, bar) {
   return lighter > darker * 1.15;
 }
 
+/* The heavy per-pixel loops live in small functions of their own: the
+   browser optimises small functions far better than one large one. */
+
+// Brightness, or "how unlike black ink" each pixel is, into grey. The
+// boosted form is the pixel's strongest colour channel plus 1.5 times how
+// colourful it is: printed names are black and colourless, while even the
+// dark patches of an old green or blue frame are strongly coloured, so they
+// stay well clear of the ink. (Tested at 1, 1.5 and 2; 1.5 read best.)
+// Share of the crop that is blown-out glare: near-white in every channel.
+// Card frames, even white ones, stay well below this.
+let lastGlare = 0;
+function glareShare(d, n) {
+  let g = 0;
+  for (let p = 0; p < n * 4; p += 16) if (d[p] > 240 && d[p + 1] > 240 && d[p + 2] > 240) g++;
+  return g / (n / 4);
+}
+
+// Whether the middle of the crop, mostly the background behind the name, is
+// strongly coloured: colourfulness relative to brightness, so dim light
+// doesn't change the answer. Old blue, green, red and land frames are; a
+// modern cream title bar and old white or artifact frames are not.
+function boldColour(d, w, h) {
+  const hist = new Uint32Array(101);
+  let n = 0;
+  for (let y = Math.round(h * 0.25); y < Math.round(h * 0.75); y += 2) {
+    for (let x = Math.round(w * 0.06), p = (y * w + x) * 4; x < Math.round(w * 0.94); x += 2, p += 8) {
+      const r = d[p], g = d[p + 1], b = d[p + 2];
+      const hi = r > g ? (r > b ? r : b) : (g > b ? g : b), lo = r < g ? (r < b ? r : b) : (g < b ? g : b);
+      hist[hi ? Math.round(((hi - lo) * 100) / hi) : 0]++; n++;
+    }
+  }
+  let acc = 0;
+  // Cream title bars measure about 16 here, old land frames 36 to 42.
+  for (let v = 0; v <= 100; v++) { acc += hist[v]; if (acc >= n / 2) return v >= 25; }
+  return false;
+}
+
+// mode 0: brightness; 1: strongest channel; 2: strongest channel boosted by colourfulness.
+function toGrey(d, n, grey, hist, mode) {
+  if (mode === 1) {
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      let v = d[p];
+      const g = d[p + 1], b = d[p + 2];
+      if (g > v) v = g;
+      if (b > v) v = b;
+      grey[i] = v; hist[v]++;
+    }
+  } else if (mode === 2) {
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      const r = d[p], g = d[p + 1], b = d[p + 2];
+      let hi = r, lo = r;
+      if (g > hi) hi = g; else if (g < lo) lo = g;
+      if (b > hi) hi = b; else if (b < lo) lo = b;
+      let v = hi + (hi - lo) * 1.5;
+      if (v > 255) v = 255;
+      v = v | 0;
+      grey[i] = v; hist[v]++;
+    }
+  } else if (mode === 3) {
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      let v = d[p];
+      const g = d[p + 1], b = d[p + 2];
+      if (g < v) v = g;
+      if (b < v) v = b;
+      v = 255 - v;
+      grey[i] = v; hist[v]++;
+    }
+  } else {
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      const v = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8;
+      grey[i] = v; hist[v]++;
+    }
+  }
+}
+
+// Averages each pixel with its 8 neighbours, to smooth away sensor noise
+// (worst in dim light).
+function smooth3(grey, w, h, top, bottom, left, right) {
+  const src = grey.slice();
+  const y0 = Math.max(1, top), y1 = Math.min(h - 1, bottom);
+  const x0 = Math.max(1, left), x1 = Math.min(w - 1, right);
+  for (let y = y0; y < y1; y++) {
+    let i = y * w + x0;
+    for (let x = x0; x < x1; x++, i++) {
+      grey[i] = (src[i - w - 1] + src[i - w] + src[i - w + 1] + src[i - 1] + src[i] + src[i + 1] +
+                 src[i + w - 1] + src[i + w] + src[i + w + 1]) / 9;
+    }
+  }
+}
+
+// Sauvola's method: a pixel is ink if it is darker than its surroundings by
+// an amount that depends on how varied they are. Copes with light falling
+// off across the card and with textured frames. Sums over each pixel's
+// neighbourhood come from running totals (summed-area tables).
+function sauvolaInk(grey, w, top, left, cw, ch, ink) {
+  const W1 = cw + 1;
+  const sum = new Int32Array(W1 * (ch + 1)), sum2 = new Float64Array(W1 * (ch + 1));
+  for (let y = 0; y < ch; y++) {
+    let rs = 0, rs2 = 0, g = (y + top) * w + left;
+    const row = (y + 1) * W1, prev = y * W1;
+    for (let x = 0; x < cw; x++, g++) {
+      const v = grey[g];
+      rs += v; rs2 += v * v;
+      sum[row + x + 1] = sum[prev + x + 1] + rs;
+      sum2[row + x + 1] = sum2[prev + x + 1] + rs2;
+    }
+  }
+  const r = Math.max(6, Math.round(ch * 0.35)), k = 0.25;
+  for (let y = 0; y < ch; y++) {
+    const y0 = y - r > 0 ? y - r : 0, y1 = y + r + 1 < ch ? y + r + 1 : ch;
+    const r0 = y0 * W1, r1 = y1 * W1;
+    let g = (y + top) * w + left, o = y * cw;
+    for (let x = 0; x < cw; x++, g++, o++) {
+      const x0 = x - r > 0 ? x - r : 0, x1 = x + r + 1 < cw ? x + r + 1 : cw;
+      const a = (y1 - y0) * (x1 - x0);
+      const s1 = sum[r1 + x1] - sum[r0 + x1] - sum[r1 + x0] + sum[r0 + x0];
+      const s2 = sum2[r1 + x1] - sum2[r0 + x1] - sum2[r1 + x0] + sum2[r0 + x0];
+      const mean = s1 / a, varc = s2 / a - mean * mean;
+      const sd = varc > 0 ? Math.sqrt(varc) : 0;
+      const v = grey[g];
+      ink[o] = v < mean * (1 + k * (sd / 128 - 1)) && v < mean - 10 ? 1 : 0;
+    }
+  }
+}
+
+// Ink is whatever is far darker than the bar's typical shade, measured as
+// its median and how much the texture varies around it.
+function farDarkerInk(grey, w, top, left, cw, ch, ink) {
+  const m = cw * ch, hb = new Uint32Array(256), hd = new Uint32Array(256);
+  for (let y = 0; y < ch; y++) { let g = (y + top) * w + left; for (let x = 0; x < cw; x++) hb[grey[g++]]++; }
+  const med = histPct(hb, m, 0.5);
+  for (let y = 0; y < ch; y++) {
+    let g = (y + top) * w + left;
+    for (let x = 0; x < cw; x++) { const dv = grey[g++] - med; hd[dv < 0 ? -dv : dv]++; }
+  }
+  const mad = histPct(hd, m, 0.5);
+  const cut = med - Math.max(45, mad * 3.5);
+  for (let y = 0; y < ch; y++) {
+    let g = (y + top) * w + left, o = y * cw;
+    for (let x = 0; x < cw; x++) ink[o++] = grey[g++] < cut ? 1 : 0;
+  }
+}
+
+// One cut-off for the whole bar, at Otsu's threshold: smudges drop out.
+function otsuInk(grey, w, top, left, cw, ch, ink) {
+  const m = cw * ch, ho = new Uint32Array(256);
+  for (let y = 0; y < ch; y++) { let g = (y + top) * w + left; for (let x = 0; x < cw; x++) ho[grey[g++]]++; }
+  let wB = 0, sB = 0, sAll = 0, best = 0, thr = 128;
+  for (let v = 0; v < 256; v++) sAll += v * ho[v];
+  for (let v = 0; v < 256; v++) {
+    wB += ho[v]; if (!wB) continue;
+    const wF = m - wB; if (!wF) break;
+    sB += v * ho[v];
+    const between = wB * wF * (sB / wB - (sAll - sB) / wF) ** 2;
+    if (between > best) { best = between; thr = v; }
+  }
+  for (let y = 0; y < ch; y++) {
+    let g = (y + top) * w + left, o = y * cw;
+    for (let x = 0; x < cw; x++) ink[o++] = grey[g++] <= thr ? 1 : 0;
+  }
+}
+
 // Reading methods, tried in turn on successive frames:
 //   0  brightness, one cut-off for the whole bar (modern cards, even light)
-//   1  best colour channel, each pixel judged against its neighbourhood
+//   1  colour-boosted channel, each pixel judged against its neighbourhood
 //      (old textured frames, uneven light, glare)
-//   2  best colour channel, one cut-off
+//   2  colour-boosted channel, keeping only pixels far darker than the bar's
+//      typical shade (short names on textured frames, like an old Forest,
+//      where the letters are too small a share of the band for a cut-off
+//      that splits it into two groups)
 const METHODS = 3;
+// (A fourth method that stretched contrast locally, for letters washed out
+// by glare, was tried: it added 1 to 3 cards per 150 in testing but made
+// each card about 60 ms slower to add, so it was left out.)
 
-function prepBand(src, sx, sy, sw, sh, scale, method = 0) {
+function prepBand(src, sx, sy, sw, sh, scale, method = 0, light = false) {
   const w = Math.round(sw * scale), h = Math.round(sh * scale);
   bandCv.width = w; bandCv.height = h;
   bandCx.imageSmoothingQuality = "high";
@@ -1140,26 +1465,18 @@ function prepBand(src, sx, sy, sw, sh, scale, method = 0) {
   const n = w * h;
   const grey = new Uint8Array(n);
   const hist = new Uint32Array(256);
-  // Dark letters on a blue frame barely differ in brightness but differ a lot
-  // in the blue channel, so methods 1 and 2 use whichever of red, green and
-  // blue best splits the middle of the crop into two groups.
-  let ch0 = -1;
-  if (method > 0) {
-    const hs = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
-    let cnt = 0;
-    for (let y = Math.round(h * 0.25); y < Math.round(h * 0.75); y++) {
-      for (let x = Math.round(w * 0.06); x < Math.round(w * 0.94); x++) {
-        const p = (y * w + x) * 4;
-        hs[0][d[p]]++; hs[1][d[p + 1]]++; hs[2][d[p + 2]]++; cnt++;
-      }
-    }
-    let bestSep = -1;
-    for (let c = 0; c < 3; c++) { const sep = separability(hs[c], cnt); if (sep > bestSep) { bestSep = sep; ch0 = c; } }
-  }
-  for (let i = 0, p = 0; i < n; i++, p += 4) {
-    const v = ch0 < 0 ? (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8 : d[p + ch0];
-    grey[i] = v; hist[v]++;
-  }
+  // Names are printed in black (or white) on frames that are coloured, so
+  // methods 1 and 2 read each pixel's strongest colour channel instead of
+  // brightness: any coloured frame turns bright while ink stays dark. Where
+  // the name sits on a strongly coloured background (an old blue or green
+  // frame) they also boost by colourfulness; on a pale title bar that would
+  // make the bar and the coloured frame around it look alike.
+  // White lettering (Ice Age and Alliances print names in white on the
+  // frame): each pixel's weakest colour channel, upside down, so the white
+  // letters become dark ink and any frame, coloured or brown, turns light.
+  const greyMode = light ? 3 : method === 0 ? 0 : boldColour(d, w, h) ? 2 : 1;
+  toGrey(d, n, grey, hist, greyMode);
+  lastGlare = glareShare(d, n);
   const lo = histPct(hist, n, 0.02), hi = histPct(hist, n, 0.98);
   const spread = hi - lo;
   if (spread < 30) return spread;
@@ -1234,7 +1551,7 @@ function prepBand(src, sx, sy, sw, sh, scale, method = 0) {
     bar = histPct(hb, n, 0.5);
   }
   // Light lettering (on a dark bar) is inverted so text is always dark.
-  if (lightLettering(grey, w, h, top, bottom, bar)) { for (let i = 0; i < n; i++) grey[i] = 255 - grey[i]; bar = 255 - bar; }
+  if (!light && lightLettering(grey, w, h, top, bottom, bar)) { for (let i = 0; i < n; i++) grey[i] = 255 - grey[i]; bar = 255 - bar; }
 
   // Side edges of the bar: step in from each end of the crop past frame and
   // outline until reaching a column that is mostly bar colour. Stopping there
@@ -1252,70 +1569,47 @@ function prepBand(src, sx, sy, sw, sh, scale, method = 0) {
   const m = cw * ch;
   const ink = new Uint8Array(m);
   if (method === 1) {
-    // Smooth away sensor noise first (it is worst in dim light).
-    const g2 = new Uint8Array(grey);
-    for (let y = Math.max(1, top); y < Math.min(h - 1, bottom); y++) {
-      for (let x = Math.max(1, left); x < Math.min(w - 1, right); x++) {
-        const i = y * w + x;
-        g2[i] = (grey[i - w - 1] + grey[i - w] + grey[i - w + 1] + grey[i - 1] + grey[i] + grey[i + 1] +
-                 grey[i + w - 1] + grey[i + w] + grey[i + w + 1]) / 9;
-      }
-    }
-    grey.set(g2);
-    // Sauvola's method: a pixel is ink if it is darker than its surroundings
-    // by an amount that depends on how varied they are. Copes with light
-    // falling off across the card and with textured frames.
-    const W1 = cw + 1;
-    const sum = new Float64Array(W1 * (ch + 1)), sum2 = new Float64Array(W1 * (ch + 1));
-    for (let y = 0; y < ch; y++) {
-      let rs = 0, rs2 = 0;
-      for (let x = 0; x < cw; x++) {
-        const v = grey[(y + top) * w + x + left];
-        rs += v; rs2 += v * v;
-        sum[(y + 1) * W1 + x + 1] = sum[y * W1 + x + 1] + rs;
-        sum2[(y + 1) * W1 + x + 1] = sum2[y * W1 + x + 1] + rs2;
-      }
-    }
-    const r = Math.max(6, Math.round(ch * 0.35)), k = 0.25;
-    for (let y = 0; y < ch; y++) {
-      const y0 = Math.max(0, y - r), y1 = Math.min(ch, y + r + 1);
-      for (let x = 0; x < cw; x++) {
-        const x0 = Math.max(0, x - r), x1 = Math.min(cw, x + r + 1);
-        const a = (y1 - y0) * (x1 - x0);
-        const s1 = sum[y1 * W1 + x1] - sum[y0 * W1 + x1] - sum[y1 * W1 + x0] + sum[y0 * W1 + x0];
-        const s2 = sum2[y1 * W1 + x1] - sum2[y0 * W1 + x1] - sum2[y1 * W1 + x0] + sum2[y0 * W1 + x0];
-        const mean = s1 / a, sd = Math.sqrt(Math.max(0, s2 / a - mean * mean));
-        const v = grey[(y + top) * w + x + left];
-        ink[y * cw + x] = v < mean * (1 + k * (sd / 128 - 1)) && v < mean - 10 ? 1 : 0;
-      }
-    }
+    smooth3(grey, w, h, top, bottom, left, right);
+    sauvolaInk(grey, w, top, left, cw, ch, ink);
+  } else if (method === 2) {
+    farDarkerInk(grey, w, top, left, cw, ch, ink);
+
   } else {
-    // One cut-off for the whole bar, at Otsu's threshold: smudges drop out.
-    const ho = new Uint32Array(256);
-    for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) ho[grey[y * w + x]]++;
-    let wB = 0, sB = 0, sAll = 0, best = 0, thr = 128;
-    for (let v = 0; v < 256; v++) sAll += v * ho[v];
-    for (let v = 0; v < 256; v++) {
-      wB += ho[v]; if (!wB) continue;
-      const wF = m - wB; if (!wF) break;
-      sB += v * ho[v];
-      const between = wB * wF * (sB / wB - (sAll - sB) / wF) ** 2;
-      if (between > best) { best = between; thr = v; }
-    }
-    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) ink[y * cw + x] = grey[(y + top) * w + x + left] <= thr ? 1 : 0;
+    otsuInk(grey, w, top, left, cw, ch, ink);
   }
   removeThinShapes(ink, cw, ch);
   let inkCount = 0;
   for (let i = 0; i < m; i++) inkCount += ink[i];
 
-  // Write out with a white margin, which the OCR reads best.
-  const pad = Math.max(6, Math.round(ch * 0.15));
-  const ow = cw + pad * 2, oh = ch + pad * 2;
+  // OCR time grows with the width of what it reads, so keep only the name:
+  // from the first ink to the first gap far wider than a space between
+  // words (what follows is the mana cost, or nothing).
+  const colInk = new Uint16Array(cw);
+  let rowTop = ch, rowBottom = -1;
+  for (let y = 0; y < ch; y++) {
+    let any = false;
+    for (let x = 0, o = y * cw; x < cw; x++, o++) if (ink[o]) { colInk[x]++; any = true; }
+    if (any) { if (y < rowTop) rowTop = y; rowBottom = y; }
+  }
+  let nx0 = 0;
+  while (nx0 < cw && !colInk[nx0]) nx0++;
+  let nx1 = nx0, gap = 0;
+  const nameGap = Math.round(ch * TRIM_GAP);
+  for (let x = nx0; x < cw; x++) {
+    if (colInk[x]) { nx1 = x + 1; gap = 0; } else if (++gap > nameGap) break;
+  }
+  if (nx0 >= cw) { nx0 = 0; nx1 = cw; rowTop = 0; rowBottom = ch - 1; }
+  const tw = nx1 - nx0, th = rowBottom - rowTop + 1;
+
+  // Write out with a white margin, which the OCR reads best. (Shrinking
+  // tall text saved a few milliseconds but cost accuracy, so it isn't done.)
+  const pad = Math.max(6, Math.round(th * 0.3));
+  const ow = tw + pad * 2, oh = th + pad * 2;
   bandCv.width = ow; bandCv.height = oh;
   const out = bandCx.createImageData(ow, oh), od = out.data;
   od.fill(255);
-  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
-    if (ink[y * cw + x]) { const p = ((y + pad) * ow + x + pad) * 4; od[p] = od[p + 1] = od[p + 2] = 0; }
+  for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) {
+    if (ink[(y + rowTop) * cw + x + nx0]) { const p = ((y + pad) * ow + x + pad) * 4; od[p] = od[p + 1] = od[p + 2] = 0; }
   }
   bandCx.putImageData(out, 0, 0);
   return inkCount > m * 0.004 ? spread : -1;
@@ -1323,11 +1617,32 @@ function prepBand(src, sx, sy, sw, sh, scale, method = 0) {
 
 /* ---------- OCR ---------- */
 let worker = null;
+// Tesseract's "fast" English model: about 4 MB and roughly 40% quicker than
+// the standard one, with the same accuracy on card names in testing. It is
+// cached in the browser under its own name after the first download.
+const FAST_MODEL = "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@4.1.0";
+
+// Starts a text reader. If the model can't be loaded the library never
+// finishes starting, so its error report and a time limit end the wait.
+function createWorkerSafely(opts) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("The text reader took too long to load.")), 90000);
+    Tesseract.createWorker("eng", 1, {
+      ...opts,
+      errorHandler: (err) => { clearTimeout(timer); reject(new Error(String(err))); },
+    }).then((w) => { clearTimeout(timer); resolve(w); }, (err) => { clearTimeout(timer); reject(err); });
+  });
+}
+
 async function initOcr() {
   if (worker) return;
   if (!window.Tesseract) throw new Error("The text reader didn't load. Check your internet connection and reload the page.");
   setStatus("Loading text reader…", "busy");
-  worker = await Tesseract.createWorker("eng", 1);
+  try {
+    worker = await createWorkerSafely({ langPath: FAST_MODEL, gzip: false, cachePath: "fast" });
+  } catch (e) {
+    worker = await createWorkerSafely({}); // the library's standard model
+  }
   await worker.setParameters({
     tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
     tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',-. ",
@@ -1335,15 +1650,16 @@ async function initOcr() {
   });
 }
 async function ocrBand() {
-  const { data } = await worker.recognize(bandCv);
+  // Text only: the layout tree and other outputs the library builds by default go unused.
+  const { data } = await worker.recognize(bandCv, {}, { text: true, blocks: false, hocr: false, tsv: false });
   return (data.text || "").replace(/\s+/g, " ").trim();
 }
 
 // Upright read of the name band.
-async function readUpright(method = 0) {
+async function readUpright(method = 0, light = false) {
   const sx = CW * BAND.x0, sy = CH * BAND.y0;
   const sw = CW * (BAND.x1 - BAND.x0), sh = CH * (BAND.y1 - BAND.y0);
-  const contrast = prepBand(cardCv, sx, sy, sw, sh, 1, method);
+  const contrast = prepBand(cardCv, sx, sy, sw, sh, 1, method, light);
   if (contrast >= 0 && contrast < 30) return { text: "", match: null, empty: true };
   if (contrast < 0) return { text: "", match: null };
   const text = await ocrBand();
@@ -1354,9 +1670,11 @@ async function readUpright(method = 0) {
 // turn each way and read both halves, each a small card of its own with the
 // name along its top. Short half names must be read exactly, so the two
 // halves are also matched together ("Fire Ice" against "Fire // Ice").
-async function readSideways(method = 0) {
+// One quarter turn per call (dir 1 or -1), so a single read stays quick; the
+// scan loop alternates directions until one works.
+async function readSideways(method = 0, dir = 1) {
   const halfW = CH / 2;
-  for (const dir of [1, -1]) {
+  {
     rotCx.save();
     rotCx.translate(CH / 2, CW / 2);
     rotCx.rotate(dir * Math.PI / 2);
@@ -1383,9 +1701,26 @@ async function readSideways(method = 0) {
 /* ---------- Scan loop ---------- */
 let running = false, stream = null, wakeLock = null, loopId = 0;
 let prevThumb = null, lastOcrThumb = null, sceneTries = 0;
-let recent = [];  // the last few reads: a card name, or null for no match
-let attempt = 0;  // counts reads, to cycle through the reading methods
+let recent = [];  // the last few reads: { name, method, score }, or null for no match
+const recentName = (x) => (x ? x.name : null);
+// Count upright and sideways reads separately, so each cycles through every
+// reading method even while the two take turns.
+const attempts = { up: 0, side: 0 };
+// Upright and sideways (split card) reads take turns while nothing matches,
+// so one read never does both; whichever works is kept while it keeps working.
+let sideways = false, sideDir = 1;
+let sideDirWorked = false; // the current quarter turn has read this card, so keep it
+// Names are dark ink on most cards but white on others (Ice Age, Alliances).
+// Until one kind has read the card in view, upright reads alternate between
+// them; once one has, it's kept for that card. The next card starts with
+// whichever worked last, since a stack is often from one set.
+let lightInk = false, inkLocked = false;
+// An upright read has found a name for the card in view, so it isn't a split
+// card and sideways reads would only waste time.
+let uprightSeen = false;
+let lastReadAt = 0;
 let present = null, presentThumb = null;
+let leftFrames = 0; // consecutive frames that look nothing like the card just added
 
 function showReading(text, cls) {
   const el = $("current");
@@ -1394,48 +1729,159 @@ function showReading(text, cls) {
   $("statusDot").className = "dot ok";
 }
 
-// One pass of the scan loop. `id` ties it to one Start press, so a loop left
-// over from before a quick Stop and Start ends instead of running twice.
+/* ---------- Keeping the loop alive ----------
+   The loop must never stop on its own. Each scan runs inside a guard: an
+   error is logged and the loop carries on; a read that takes too long has
+   its text reader shut down and replaced; and a separate check restarts the
+   loop if no scan has finished for a few seconds. */
+const READ_TIMEOUT_MIN = 1000; // ms: the usual limit for one read
+let readTimes = [];            // recent read times, to allow slow phones more
+let lastTickAt = 0, watchdogTimer = null, readerRestart = null, movingSince = 0;
+
+// The limit for one read: 1 second, or 4 times this phone's usual read time
+// if that is longer, so a slow phone isn't cut off on every read.
+function readTimeout() {
+  if (readTimes.length < 5) return READ_TIMEOUT_MIN * 2; // the first reads warm up
+  const sorted = readTimes.slice().sort((a, b) => a - b);
+  return Math.max(READ_TIMEOUT_MIN, sorted[sorted.length >> 1] * 4);
+}
+function withTimeout(promise, ms) {
+  let timer;
+  const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("read timed out")), ms); });
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+}
+// Shuts down a stuck text reader (this stops it even mid-read) and starts a
+// fresh one. The model comes from the browser's cache, so this is quick.
+function restartReader() {
+  if (readerRestart) return readerRestart;
+  const old = worker;
+  worker = null;
+  try { if (old) old.terminate(); } catch (e) {}
+  readerRestart = (async () => {
+    setStatus("Restarting text reader…", "busy");
+    try { await initOcr(); if (running) setStatus("Scanning", "ok"); }
+    catch (e) { setStatus("The text reader stopped. Press Stop, then Start camera.", "err"); }
+  })().finally(() => { readerRestart = null; });
+  return readerRestart;
+}
+function startWatchdog() {
+  clearInterval(watchdogTimer);
+  lastTickAt = performance.now();
+  watchdogTimer = setInterval(() => {
+    if (!running || readerRestart) return;
+    if (performance.now() - lastTickAt > 4000) {
+      console.warn("Scan loop stalled; restarting it.");
+      lastTickAt = performance.now();
+      tick(++loopId);
+    }
+  }, 1000);
+}
+
+// One pass of the scan loop. `id` ties it to one Start press (or restart),
+// so a loop left over from before ends instead of running twice.
 async function tick(id) {
   if (!running || id !== loopId) return;
-  const again = (ms) => setTimeout(() => tick(id), ms);
-  if (!video.videoWidth || !index || !worker) { again(100); return; }
+  lastTickAt = performance.now();
+  let wait = 200;
+  try {
+    wait = await scanOnce(id);
+  } catch (err) {
+    console.error("Scan failed:", err);
+    if (err && err.message === "read timed out") await restartReader();
+  }
+  lastTickAt = performance.now();
+  if (wait !== null && running && id === loopId) setTimeout(() => tick(id), wait);
+}
+
+// One scan. Returns how long to wait before the next, or null to stop.
+async function scanOnce(id) {
+  if (!running || id !== loopId) return null;
+  if (!video.videoWidth || !index || !worker) return 100;
+  // A camera that stopped delivering (the page went to the background, or
+  // the phone paused it) is restarted.
+  if (video.paused || video.readyState < 2) { video.play().catch(() => {}); return 200; }
 
   grabCard();
   const thumb = takeThumb();
+  // The card just added counts as gone once the outline looks very different
+  // for two frames in a row: it was slid out or lifted away, even briefly
+  // while the next card went in. Then a stack of identical cards, like basic
+  // lands, each get added. (A hand wobble changes the view by about 15-20 on
+  // this measure, a card a third of the way out by about 45.)
+  if (present && thumbDiff(thumb, presentThumb) > 40) {
+    if (++leftFrames >= 2) { present = null; presentThumb = null; recent = []; leftFrames = 0; sideDirWorked = false; inkLocked = false; uprightSeen = false; }
+  } else {
+    leftFrames = 0;
+  }
   const motion = thumbDiff(thumb, prevThumb);
   prevThumb = thumb;
-  if (motion > 10) { again(40); return; } // moving: wait for a still frame
+  // Moving: wait for a still frame. But never wait more than 1.5 s, in case
+  // the picture never settles (focus hunting, flickering light).
+  if (motion > 10) {
+    if (!movingSince) movingSince = performance.now();
+    if (performance.now() - movingSince < 1500) return 40;
+  }
+  movingSince = 0;
 
   const sameScene = thumbDiff(thumb, lastOcrThumb) < 5;
-  // Nothing new to read: the card already added is still in view, or every
-  // reading method has had two tries at this exact view.
-  if (sameScene && ((present && recent[recent.length - 1] === present) || sceneTries >= METHODS * 2)) {
-    again(60);
-    return;
-  }
+  // Nothing new to read: the card already added is still in view. And once
+  // every method has had several tries at this exact view, slow down to one
+  // read a second rather than stop, so a hard card still gets retried.
+  if (sameScene && present && recentName(recent[recent.length - 1]) === present) return 60;
+  if (sameScene && sceneTries >= METHODS * 4 && performance.now() - lastReadAt < 1000) return 60;
+  lastReadAt = performance.now();
   if (!sameScene) sceneTries = 0;
   sceneTries++;
   lastOcrThumb = thumb;
 
-  const method = attempt++ % METHODS;
+  const trySideways = sideways && $("splitToggle").checked;
+  const method = attempts[trySideways ? "side" : "up"]++ % METHODS;
   const t0 = performance.now();
-  let r = await readUpright(method);
-  if (!r.match && !r.empty && $("splitToggle").checked) {
-    const s = await readSideways(method);
-    if (s.match) r = s;
+  const r = await withTimeout(trySideways ? readSideways(method, sideDir) : readUpright(method, lightInk), readTimeout());
+  const usedLight = lightInk;
+  if (r.empty) { inkLocked = false; uprightSeen = false; }
+  if (!trySideways && !r.empty) {
+    if (r.match) { inkLocked = true; uprightSeen = true; }
+    else if (!inkLocked) lightInk = !lightInk;
+  }
+  if (r.match) {
+    sideDirWorked = trySideways;
+  } else if (trySideways) {
+    // A miss after this quarter turn has read the card is just the method,
+    // so stay sideways. Otherwise go back to upright for a read, and try the
+    // other quarter turn next time.
+    if (!sideDirWorked) { sideways = false; sideDir = -sideDir; }
+  } else if (!r.empty && $("splitToggle").checked && !uprightSeen) {
+    // Try sideways next, unless an upright read has already found a name for
+    // this card: then it isn't a split card, and the upright methods should
+    // keep their turns so two of them can agree.
+    sideways = true;
   }
   const ms = Math.round(performance.now() - t0);
-  if (!running || id !== loopId) return;
+  readTimes.push(ms);
+  if (readTimes.length > 30) readTimes.shift();
+  if (!running || id !== loopId) return null;
 
-  // A card is added once the same name comes up in 2 of the last 4 reads.
+  // A card is added once the same name comes up in 2 of the last 4 reads, or
+  // straight away when a read is exactly a full name of 5 or more letters.
   // Reads cycle through the methods, so a card that only one method can
   // read (an old frame in poor light, say) is still added.
   const name = r.match ? r.match.name : null;
-  recent.push(name);
+  // Each read is kept with the method that made it (the same method on dark
+  // and on white lettering counts as two), and unmatched text is kept too: it
+  // can support a match from another read.
+  recent.push(r.empty ? null : {
+    name, side: trySideways, method: method * 2 + (usedLight ? 1 : 0),
+    score: name ? (r.match.exact ? 0 : r.match.score || 0) : 1,
+    text: name ? "" : normName(r.text || ""),
+  });
   if (recent.length > 4) recent.shift();
   if (name) {
-    if (name !== present && recent.filter((x) => x === name).length >= 2) {
+    // While the added card is still in view (it looks the same), a different
+    // name is a misread of it, not a new card: Wasteland read as "Wastes".
+    const sameCardInView = present && thumbDiff(thumb, presentThumb) <= 25;
+    if (name === present) presentThumb = thumb; // follow a card that drifts slowly
+    else if (!sameCardInView && ((r.match.exact && r.match.key.length >= 5) || agreed(name, r.match.key))) {
       present = name;
       presentThumb = thumb;
       addCard(name);
@@ -1445,11 +1891,32 @@ async function tick(id) {
     $("meta").textContent = `${ms} ms`;
   } else {
     // The card has gone once none of the last reads found it and the view has changed.
-    if (present && !recent.includes(present) && thumbDiff(thumb, presentThumb) > 18) { present = null; presentThumb = null; }
-    if (!present) showReading(r.text ? `“${r.text}”` : "No card in the outline", "pending");
+    if (present && !recent.some((x) => recentName(x) === present) && thumbDiff(thumb, presentThumb) > 18) { present = null; presentThumb = null; inkLocked = false; uprightSeen = false; }
+    if (!present) {
+      // Glare across the name is the commonest reason a card won't read, and
+      // tilting the card fixes it, so say so.
+      if (lastGlare > 0.06 && !r.empty) showReading("Glare on the name: tilt the card slightly", "pending");
+      else if (r.text) showReading(`“${r.text}”`, "pending");
+      else showReading(r.empty ? "No card in the outline" : "Reading the name…", "pending");
+    }
     $("meta").textContent = r.text ? `${ms} ms` : "";
   }
-  again(0);
+  return 0;
+}
+
+// Whether the last few reads agree on name. Reading an unchanged view
+// twice with the same method gives the same result, right or wrong, so a
+// repeat only counts as agreement when the match is solid. Otherwise it
+// takes two different methods arriving at the same name.
+// A read that matched nothing but is exactly the start of the name, at
+// least 5 letters ("Nature's" for Nature's Blessing), supports it too.
+function agreed(name, key) {
+  const hits = recent.filter((x) => x && x.name === name);
+  if (!hits.length) return false;
+  const support = recent.filter((x) => x && !x.name && !x.side && x.text.replace(/ /g, "").length >= 5 && key.startsWith(x.text));
+  const all = hits.concat(support);
+  if (all.length >= 2 && new Set(all.map((x) => x.method)).size >= 2) return true;
+  return hits.length >= 2 && hits.every((x) => x.score <= SOLID);
 }
 
 function flash() {
@@ -1479,6 +1946,10 @@ async function openCamera(deviceId) {
   if (deviceId) video0.deviceId = { exact: deviceId };
   else video0.facingMode = { ideal: "environment" };
   stream = await navigator.mediaDevices.getUserMedia({ video: video0, audio: false });
+  // If the camera is taken away (another app, the phone suspending it),
+  // reopen it while scanning.
+  const s0 = stream;
+  s0.getVideoTracks()[0].addEventListener("ended", () => { if (running && stream === s0) reopenCamera(); });
   // Ask for continuous autofocus where the camera offers it; it helps up close.
   const track = stream.getVideoTracks()[0];
   try {
@@ -1590,6 +2061,26 @@ async function openPreferredCamera() {
   }
 }
 
+let reopening = null;
+function reopenCamera() {
+  if (reopening) return reopening;
+  reopening = (async () => {
+    setStatus("Reconnecting camera…", "busy");
+    try { await openPreferredCamera(); if (running) setStatus("Scanning", "ok"); }
+    catch (e) { setStatus("The camera stopped. Press Stop, then Start camera.", "err"); }
+  })().finally(() => { reopening = null; });
+  return reopening;
+}
+// Back from the background: wake the camera, and the screen lock, again.
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState !== "visible" || !running) return;
+  const track = stream && stream.getVideoTracks()[0];
+  if (!track || track.readyState === "ended") await reopenCamera();
+  else if (video.paused) video.play().catch(() => {});
+  try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
+  lastTickAt = performance.now();
+});
+
 async function fillCameraList() {
   const sel = $("cameraSelect");
   const devices = await videoDevices();
@@ -1640,6 +2131,7 @@ async function start() {
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
     setStatus("Scanning", "ok");
     showReading("No card in the outline", "pending");
+    startWatchdog();
     tick(++loopId);
   } catch (err) {
     const msg = err && err.name === "NotAllowedError"
@@ -1657,6 +2149,7 @@ async function start() {
 
 function stop() {
   running = false;
+  clearInterval(watchdogTimer);
   stopStream();
   video.srcObject = null;
   try { wakeLock && wakeLock.release(); } catch (e) {}
@@ -1767,6 +2260,7 @@ function renderList(fresh) {
   for (const c of cards) total += c.qty;
   $("total").textContent = `${total.toLocaleString()} card${total === 1 ? "" : "s"}`;
   $("empty").hidden = cards.length > 0;
+  $("clearBtn").disabled = cards.length === 0;
   $("searchInput").hidden = cards.length === 0 && !query;
   view = query ? cards.filter((c) => normFor(c.name).includes(query)) : cards;
   const info = $("searchInfo");
@@ -2054,7 +2548,7 @@ function applyImport(list, mode) {
     }
     cards = fresh.concat(cards);
   }
-  present = null; recent = [];
+  present = null; recent = []; leftFrames = 0;
   saveList();
   renderList();
   const total = list.reduce((n, c) => n + c.qty, 0);
@@ -2065,11 +2559,24 @@ function applyImport(list, mode) {
   });
 }
 
-$("clearBtn").addEventListener("click", () => { if (cards.length) $("clearConfirm").hidden = false; });
-$("clearNo").addEventListener("click", () => ($("clearConfirm").hidden = true));
+// Clear asks first, in a dialog naming how many cards go, and offers Undo after.
+const clearDialog = $("clearDialog");
+function closeClearDialog() { if (clearDialog.close) clearDialog.close(); else clearDialog.removeAttribute("open"); }
+$("clearBtn").addEventListener("click", () => {
+  if (!cards.length) return;
+  const total = cards.reduce((n, c) => n + c.qty, 0);
+  $("clearTitle").textContent = total === 1 ? "Clear 1 card?" : `Clear all ${total.toLocaleString()} cards?`;
+  if (clearDialog.showModal) clearDialog.showModal(); else clearDialog.setAttribute("open", "");
+  $("clearNo").focus(); // the safe choice is the one Enter picks
+});
+$("clearNo").addEventListener("click", closeClearDialog);
+clearDialog.addEventListener("click", (e) => { if (e.target === clearDialog) closeClearDialog(); });
 $("clearYes").addEventListener("click", () => {
-  cards = []; saveList(); renderList(); $("clearConfirm").hidden = true;
-  present = null; recent = [];
+  closeClearDialog();
+  const before = cards, label = cardCountText();
+  cards = []; saveList(); renderList();
+  present = null; recent = []; leftFrames = 0;
+  showUndoToast("Cleared", label, () => { cards = before; saveList(); renderList(); });
 });
 
 /* ---------- Tips ---------- */
