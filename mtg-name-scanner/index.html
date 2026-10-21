@@ -1236,7 +1236,9 @@ function removeThinShapes(ink, w, h) {
     // Smaller edge blobs are kept, since in dim light letters can merge with
     // dark frame texture that reaches the edge.
     const edge = minX === 0 || maxX === w - 1 || minY === 0 || maxY === h - 1;
-    if (edge && (bw > w * 0.45 || bh > h * 0.8)) { for (const i of pixels) ink[i] = 0; continue; }
+    // A tall blob at the edge only counts as frame if it's mostly solid: a
+    // capital letter at the start of the name is strokes with gaps between.
+    if (edge && (bw > w * 0.45 || (bh > h * 0.8 && pixels.length > bw * bh * 0.6))) { for (const i of pixels) ink[i] = 0; continue; }
     // The title bar's whole outline, kept as one hollow loop: wider and
     // taller than any letter, with little ink inside its bounds.
     if (bw > w * 0.6 && bh > h * 0.5 && pixels.length < bw * bh * 0.2) { for (const i of pixels) ink[i] = 0; continue; }
@@ -1262,6 +1264,34 @@ function histPct(hist, count, frac) {
 // just the bar's interior in the band canvas as black text on white, with a
 // white margin, ready for OCR. Returns the crop's contrast: under 30 means a
 // blank area, and -1 means there is something there but no lettering.
+// Finds the line of lettering by what makes it different from frames, card
+// borders and sleeve edges: many sharp light-dark changes close together
+// along a row. Borders and edges are long smooth lines with few. Returns the
+// rows of the busiest run, or null if no row is busy enough to be text.
+function textLine(grey, w, h) {
+  const x0 = Math.round(w * 0.04), x1 = Math.round(w * 0.96);
+  const T = new Float32Array(h);
+  for (let y = 0; y < h; y++) {
+    let c = 0, g = y * w + x0;
+    for (let x = x0; x < x1 - 1; x++, g++) {
+      const d = grey[g + 1] - grey[g];
+      if (d > 35 || d < -35) c++;
+    }
+    T[y] = c;
+  }
+  let peak = 0, py = 0;
+  const S = new Float32Array(h);
+  for (let y = 0; y < h; y++) {
+    S[y] = (T[y > 0 ? y - 1 : 0] + T[y] + T[y < h - 1 ? y + 1 : h - 1]) / 3;
+    if (S[y] > peak) { peak = S[y]; py = y; }
+  }
+  if (peak < (x1 - x0) * 0.03) return null;
+  let t = py, b = py;
+  while (t > 0 && S[t - 1] >= peak * 0.35) t--;
+  while (b < h - 1 && S[b + 1] >= peak * 0.35) b++;
+  return { top: t, bottom: b + 1 };
+}
+
 // Whether the lettering is lighter than the bar it sits on. A clearly light
 // bar has dark lettering and a clearly dark one light lettering. For a
 // mid-tone bar (a dim blue frame, say) count the pixels far darker than the
@@ -1545,7 +1575,25 @@ function prepBand(src, sx, sy, sw, sh, scale, method = 0, light = false) {
     while (b2 < h && b2 - bottom < grow && con[b2] > 70) b2++;
     top = t2; bottom = b2;
   }
-  if (bar < 0) { // no bar found: read the whole crop
+  // Check against the line of lettering itself. If no bar was found, or the
+  // strip taken for it is much taller than a line of text (a sleeve edge, the
+  // card's border and the bar all merged), or misses the lettering, use the
+  // rows around the lettering instead.
+  // (Only for upright reads of white lettering: there it rescued sleeved
+  // and black-bordered cards; for dark ink it lost more than it gained.)
+  const line = scale === 1 && light ? textLine(grey, w, h) : null;
+  if (line) {
+    const lh = line.bottom - line.top;
+    if (bar < 0 || bottom - top > lh * 3 || line.top < top - 2 || line.bottom > bottom + 2) {
+      // The busiest rows are the lowercase letters' height: capitals and tall
+      // letters reach well above it, tails a little below.
+      top = Math.max(0, line.top - Math.max(3, Math.round(lh * 0.9)));
+      bottom = Math.min(h, line.bottom + Math.max(2, Math.round(lh * 0.6)));
+      const lv = Array.from(lvl.slice(top, bottom)).sort((a, b) => a - b);
+      bar = lv[lv.length >> 1];
+    }
+  }
+  if (bar < 0) { // neither a bar nor a line of lettering: read the whole crop
     const hb = new Uint32Array(256);
     for (let i = 0; i < n; i++) hb[grey[i]]++;
     bar = histPct(hb, n, 0.5);
