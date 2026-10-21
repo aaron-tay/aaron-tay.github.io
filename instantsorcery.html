@@ -191,6 +191,45 @@ h1 {
 .settings-title { color: var(--ink); font-weight: 700; font-size: .92rem; }
 .settings-section .settings-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .settings-section button, .file-btn { padding: 5px 10px; font-size: .88rem; }
+.settings-section .fresh { color: var(--ink); }
+
+/* A thin download progress bar in Ochre */
+.progress {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--field);
+  overflow: hidden;
+}
+.progress > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width .2s linear;
+}
+
+/* Export format choices: whole rows are tappable */
+.choices { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.choice:hover { border-color: var(--muted); }
+.choice:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.choice input { margin: 3px 0 0; width: 16px; height: 16px; flex: none; accent-color: var(--accent); }
+.choice b { display: block; }
+.choice small { display: block; color: var(--muted); font-size: .86rem; line-height: 1.4; margin-top: 2px; }
+.choice .progress { margin-top: 8px; }
 .file-btn {
   display: inline-block;
   border: 1px solid var(--line);
@@ -498,6 +537,9 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
 .row.fresh { animation: fresh 1.2s ease-out; }
 @keyframes fresh { from { background: color-mix(in srgb, var(--accent) 22%, transparent); } to { background: transparent; } }
 .qty { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); text-align: right; }
+.cell { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.cset { font-size: .76rem; line-height: 1.2; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cset:empty { display: none; }
 .cname { font-family: var(--font-name); font-weight: 500; font-size: 1.08rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); text-decoration: none; }
 .cname:hover { text-decoration: underline; text-decoration-color: var(--accent); }
 .rowbtns { display: flex; gap: 4px; }
@@ -607,6 +649,15 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
           </div>
           <p>A .txt file with one name per line, a .csv with names in the first column, or a JSON array. Write split cards as "Fire // Ice".</p>
         </div>
+        <div class="settings-section">
+          <div class="settings-title">Card printings</div>
+          <p id="printingsInfo">Not downloaded. Only needed to export for ManaBox, which wants a set for every card.</p>
+          <div class="progress" id="printingsProgress" hidden><span></span></div>
+          <div class="settings-actions">
+            <button type="button" id="refreshPrintings">Download from Scryfall</button>
+          </div>
+          <p>Scryfall's usual printing of each card, about 25 MB. Kept in this browser and refreshed weekly.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -674,7 +725,7 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
 <footer class="site-foot">
   <div class="site-foot-inner">
     <p>InstantSorcery is unofficial Fan Content permitted under the <a href="https://company.wizards.com/en/legal/fancontentpolicy" target="_blank" rel="noopener">Fan Content Policy</a>. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.</p>
-    <p>Card names from <a href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a>.</p>
+    <p>Card names and printings from <a href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a>.</p>
   </div>
 </footer>
 
@@ -691,6 +742,26 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
     <div class="modal-actions end">
       <button type="button" id="clearNo" autofocus>Cancel</button>
       <button type="button" class="danger" id="clearYes">Clear</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="modal" id="exportDialog" aria-labelledby="exportTitle">
+  <div class="modal-inner">
+    <h2 id="exportTitle">Export</h2>
+    <fieldset class="choices">
+      <legend class="visually-hidden">File format</legend>
+      <label class="choice"><input type="radio" name="exportFormat" value="csv" checked>
+        <span><b>CSV</b><small>Count and name. Opens in any spreadsheet, and Import reads it back.</small></span></label>
+      <label class="choice"><input type="radio" name="exportFormat" value="txt">
+        <span><b>Text list</b><small>One card per line, like “4 Lightning Bolt”. Most deck and collection sites accept this.</small></span></label>
+      <label class="choice"><input type="radio" name="exportFormat" value="manabox">
+        <span><b>ManaBox</b><small id="manaboxNote">Adds a set to each card, using Scryfall's usual printing, so check sets in ManaBox afterwards.</small>
+        <span class="progress" id="exportProgress" hidden><span></span></span></span></label>
+    </fieldset>
+    <div class="modal-actions end">
+      <button type="button" id="exportCancel">Cancel</button>
+      <button type="button" class="primary" id="exportGo">Export</button>
     </div>
   </div>
 </dialog>
@@ -730,6 +801,92 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
   </div>
 </dialog>
 
+<!-- Background worker for card printings. It streams Scryfall's Oracle Cards
+     file (about 25 MB compressed, 150 MB unpacked) one card per line, keeps
+     a few fields per card, and saves the small result in IndexedDB. The
+     whole file is never held in memory, and the scanner keeps running. -->
+<script type="text/js-worker" id="printingsWorkerSrc">
+const META_URL = "https://api.scryfall.com/bulk-data/oracle-cards";
+// Not cards you can own: these never appear in the card-name list either.
+const SKIP_LAYOUTS = new Set(["token", "double_faced_token", "emblem", "art_series"]);
+const STALL_MS = 60000; // give up if nothing arrives for a minute
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("instantsorcery", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("data");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+self.onmessage = async (e) => {
+  if (!e.data || e.data.cmd !== "refresh") return;
+  const ctl = new AbortController();
+  let stall = 0;
+  const kick = () => { clearTimeout(stall); stall = setTimeout(() => ctl.abort(), STALL_MS); };
+  try {
+    kick();
+    const metaRes = await fetch(META_URL, { signal: ctl.signal, headers: { Accept: "application/json" } });
+    if (!metaRes.ok) throw new Error("Scryfall answered " + metaRes.status);
+    const meta = await metaRes.json();
+    if (!meta || !meta.download_uri) throw new Error("unexpected reply from Scryfall");
+
+    const res = await fetch(meta.download_uri, { signal: ctl.signal });
+    if (!res.ok || !res.body) throw new Error("Scryfall answered " + res.status);
+    const total = meta.size || 0; // unpacked size in bytes
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    const rows = [];
+    let buf = "", seen = 0, lastPost = 0;
+
+    // One card per line: '{...},'. The opening '[' and closing ']' lines are skipped.
+    const take = (line) => {
+      line = line.trim();
+      if (line.charCodeAt(0) !== 123) return; // "{"
+      if (line.endsWith(",")) line = line.slice(0, -1);
+      const c = JSON.parse(line);
+      if (!c.name || SKIP_LAYOUTS.has(c.layout)) return;
+      rows.push([c.name, c.set || "", c.set_name || "", c.collector_number || "", c.id || "", c.rarity || ""]);
+    };
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      kick();
+      seen += value.length;
+      buf += value;
+      let start = 0, nl;
+      while ((nl = buf.indexOf("\n", start)) >= 0) { take(buf.slice(start, nl)); start = nl + 1; }
+      buf = buf.slice(start);
+      const now = Date.now();
+      if (now - lastPost > 200) {
+        lastPost = now;
+        self.postMessage({ type: "progress", fraction: total ? Math.min(0.99, seen / total) : 0, cards: rows.length });
+      }
+    }
+    take(buf);
+    clearTimeout(stall);
+    if (rows.length < 1000) throw new Error("the file from Scryfall looks incomplete");
+
+    // Saved in one step, so the previous copy stays until this one is complete.
+    const record = { t: Date.now(), updated: meta.updated_at || "", rows };
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction("data", "readwrite");
+      tx.objectStore("data").put(record, "printings");
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("couldn't save"));
+    });
+    db.close();
+    self.postMessage({ type: "done", t: record.t, count: rows.length, updated: record.updated });
+  } catch (err) {
+    clearTimeout(stall);
+    const msg = err && err.name === "AbortError" ? "the download stalled" : (err && err.message) || String(err);
+    self.postMessage({ type: "error", message: msg });
+  }
+};
+</script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script>
 "use strict";
@@ -1090,12 +1247,49 @@ function setStatus(text, kind) {
 // Storage keys keep their original "cns." prefix, so saved lists and
 // settings carry over from before the app was renamed.
 const NAMES_KEY = "cns.names.v1";
+const NAMES_META_KEY = "cns.names.meta"; // {t, count, custom, file, stale}: small, read on page load
 const WEEK = 7 * 24 * 3600 * 1000;
 let index = null;
 
-function useNames(names, source) {
+// "today, 2:05 pm", "yesterday, 9:14 am", "3 days ago" or "18 Oct 2026".
+function fetchedText(t) {
+  const d = new Date(t), now = new Date();
+  const day = (x) => Math.floor((new Date(x.getFullYear(), x.getMonth(), x.getDate()) - 0) / 864e5);
+  const ago = day(now) - day(d);
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (ago <= 0) return "today, " + time;
+  if (ago === 1) return "yesterday, " + time;
+  if (ago < 7) return ago + " days ago";
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+function namesMeta() {
+  try {
+    const m = JSON.parse(store.get(NAMES_META_KEY) || "null");
+    if (m) return m;
+    // Saved before this setting existed: read the date from the list itself, once.
+    const c = JSON.parse(store.get(NAMES_KEY) || "null");
+    if (!c) return null;
+    const meta = { t: c.t, count: (c.names || []).length, custom: !!c.custom };
+    store.set(NAMES_META_KEY, JSON.stringify(meta));
+    return meta;
+  } catch (e) { return null; }
+}
+function showNamesInfo() {
+  const m = namesMeta(), el = $("namesInfo");
+  if (!m) { el.textContent = "Not downloaded yet. It's fetched from Scryfall when you first start the camera, then refreshed weekly."; return; }
+  const n = m.count.toLocaleString();
+  if (m.custom) {
+    el.textContent = `${n} names from your own list${m.file ? " (" + m.file + ")" : ""}, loaded ${fetchedText(m.t)}.`;
+  } else {
+    el.textContent = `${n} names from Scryfall, last fetched ${fetchedText(m.t)}.` +
+      (m.stale ? " Couldn't refresh it, so this older copy is in use." : Date.now() - m.t >= WEEK ? " Refreshes next time you start the camera." : "");
+  }
+}
+function saveNamesMeta(meta) { store.set(NAMES_META_KEY, JSON.stringify(meta)); showNamesInfo(); }
+
+function useNames(names) {
   index = buildIndex(names);
-  $("namesInfo").textContent = `${names.length.toLocaleString()} card names loaded from ${source}.`;
 }
 
 async function fetchScryfallNames() {
@@ -1110,19 +1304,19 @@ async function fetchScryfallNames() {
 async function loadNames(force, quiet) {
   let cached = null;
   try { cached = JSON.parse(store.get(NAMES_KEY) || "null"); } catch (e) {}
-  if (cached && cached.custom && !force) { useNames(cached.names, "your own list"); return; }
-  if (cached && !force && Date.now() - cached.t < WEEK) {
-    useNames(cached.names, "Scryfall (saved " + new Date(cached.t).toLocaleDateString() + ")");
-    return;
-  }
+  if (cached && cached.custom && !force) { useNames(cached.names); return; }
+  if (cached && !force && Date.now() - cached.t < WEEK) { useNames(cached.names); return; }
   if (!quiet) setStatus("Downloading card names from Scryfall…", "busy");
   try {
     const names = await fetchScryfallNames();
-    store.set(NAMES_KEY, JSON.stringify({ t: Date.now(), names }));
-    useNames(names, "Scryfall");
+    const t = Date.now();
+    store.set(NAMES_KEY, JSON.stringify({ t, names }));
+    useNames(names);
+    saveNamesMeta({ t, count: names.length, custom: false });
   } catch (err) {
     if (cached && cached.names) {
-      useNames(cached.names, "an older saved copy");
+      useNames(cached.names);
+      if (!cached.custom) saveNamesMeta({ t: cached.t, count: cached.names.length, custom: false, stale: true });
     } else {
       if (!quiet) setSettingsOpen(true);
       throw new Error("Couldn't download card names from Scryfall. Check your connection, or load your own list in Settings.");
@@ -1153,16 +1347,21 @@ $("namesFile").addEventListener("change", async () => {
   try {
     const names = parseNameFile(await f.text());
     if (!names.length) throw new Error("no names found");
-    store.set(NAMES_KEY, JSON.stringify({ t: Date.now(), names, custom: true }));
-    useNames(names, "your own list (" + f.name + ")");
+    const t = Date.now();
+    store.set(NAMES_KEY, JSON.stringify({ t, names, custom: true }));
+    useNames(names);
+    saveNamesMeta({ t, count: names.length, custom: true, file: f.name });
     setStatus(running ? "Scanning" : "Card list ready", running ? "ok" : "");
   } catch (e) {
     $("namesInfo").textContent = "Couldn't read " + f.name + ": " + e.message + ".";
   }
 });
 $("refreshNames").addEventListener("click", async () => {
+  const btn = $("refreshNames");
+  btn.disabled = true; btn.textContent = "Downloading…";
   try { await loadNames(true); setStatus(running ? "Scanning" : "Card list ready", running ? "ok" : ""); }
   catch (e) { setStatus(e.message, "err"); }
+  finally { btn.disabled = false; btn.textContent = "Refresh from Scryfall"; }
 });
 
 /* ---------- Guide geometry (in video pixels) ---------- */
@@ -2292,7 +2491,28 @@ function addCard(name) {
    Only the rows in view (plus a few either side) exist on the page. As the
    list scrolls, the same row elements are given different cards, so drawing
    costs the same for 50 cards or 10,000. */
-const ROW_H = 44, OVERSCAN = 6;
+const PRINTINGS_META_KEY = "cns.printings.meta"; // {t, count}: small, read on page load
+const printings = {
+  meta: (() => { try { return JSON.parse(store.get(PRINTINGS_META_KEY) || "null"); } catch (e) { return null; } })(),
+  byName: null,   // Map of normalised name -> row, built when first needed
+  loading: null,  // promise while reading the saved copy
+  job: null,      // promise while downloading
+  fraction: 0,
+  error: "",
+};
+
+let ROW_H = 44; const OVERSCAN = 6;
+// Rows grow to fit a set line when printings are available.
+function setRowHeight(withSets) {
+  const h = withSets ? 54 : 44;
+  if (h === ROW_H) return;
+  const at = listEl.scrollTop / ROW_H; // keep the same card at the top
+  ROW_H = h;
+  listEl.style.setProperty("--row-h", h + "px");
+  spacer.style.height = view.length * ROW_H + "px";
+  listEl.scrollTop = at * ROW_H;
+  drawRows();
+}
 const listEl = $("list"), spacer = $("listSpacer");
 const rowPool = [];
 let view = [];          // the cards shown: all of them, or those matching the search
@@ -2310,12 +2530,15 @@ function makeRow() {
   row.className = "row";
   row.setAttribute("role", "listitem");
   const q = document.createElement("span"); q.className = "qty";
+  const cell = document.createElement("span"); cell.className = "cell";
   const a = document.createElement("a"); a.className = "cname"; a.target = "_blank"; a.rel = "noopener";
+  const set = document.createElement("span"); set.className = "cset";
+  cell.append(a, set);
   const btns = document.createElement("span"); btns.className = "rowbtns";
   const minus = document.createElement("button"); minus.type = "button"; minus.textContent = "−"; minus.dataset.act = "minus";
   const plus = document.createElement("button"); plus.type = "button"; plus.textContent = "+"; plus.dataset.act = "plus";
   btns.append(minus, plus);
-  row.append(q, a, btns);
+  row.append(q, cell, btns);
   spacer.appendChild(row);
   return row;
 }
@@ -2336,9 +2559,13 @@ function drawRows() {
     row.setAttribute("aria-posinset", i + 1);
     row.setAttribute("aria-setsize", view.length);
     row.children[0].textContent = c.qty + "×";
+    // The set line uses Scryfall's usual printing, once printings are saved.
+    const p = printings.byName ? printingOf(c.name) : null;
+    const setName = p ? p[2] : "";
+    if (row.dataset.set !== setName) { row.dataset.set = setName; row.children[1].children[1].textContent = setName; }
     if (row.dataset.name !== c.name) {
       row.dataset.name = c.name;
-      const a = row.children[1];
+      const a = row.children[1].children[0];
       a.textContent = c.name;
       a.title = c.name;
       a.href = scryfallUrl(c.name);
@@ -2470,16 +2697,31 @@ $("copyBtn").addEventListener("click", async () => {
   }
 });
 /* ===================== IMPORT/EXPORT START ===================== */
-// Export is a CSV with Count and Name columns. CSV is the one format phone
-// share sheets accept that also opens in spreadsheets and collection sites.
-function csvField(v) { return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+// Export formats. CSV and text lists are what phone share sheets accept.
+function csvField(v) { v = String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+// The leading byte-order mark makes Excel read accented names (Æther, Lim-Dûl) correctly.
+const BOM = "﻿";
 function collectionCsv(list) {
-  // The leading byte-order mark makes Excel read accented names (Æther, Lim-Dûl) correctly.
-  return "﻿Count,Name\r\n" + list.map((c) => c.qty + "," + csvField(c.name)).join("\r\n") + "\r\n";
+  return BOM + "Count,Name\r\n" + list.map((c) => c.qty + "," + csvField(c.name)).join("\r\n") + "\r\n";
+}
+function textList(list) { return list.map((c) => `${c.qty} ${c.name}`).join("\n") + "\n"; }
+
+// ManaBox needs a set for every card. printingOf(name) returns
+// [name, set code, set name, collector number, Scryfall ID, rarity] or null.
+// Cards with no known printing are left out and returned as `missing`.
+function manaboxCsv(list, printingOf) {
+  const lines = ["Name,Set code,Set name,Collector number,Rarity,Quantity,Scryfall ID"];
+  const missing = [];
+  for (const c of list) {
+    const p = printingOf(c.name);
+    if (!p) { missing.push(c); continue; }
+    lines.push([p[0], p[1], p[2], p[3], p[5], c.qty, p[4]].map(csvField).join(","));
+  }
+  return { text: BOM + lines.join("\r\n") + "\r\n", missing };
 }
 
-// Splits CSV text into rows of fields, handling quoted fields.
-function parseCsv(text) {
+// Splits delimited text into rows of fields, handling quoted fields.
+function parseCsv(text, delim = ",") {
   const rows = [];
   let row = [], field = "", quoted = false;
   for (let i = 0; i < text.length; i++) {
@@ -2488,7 +2730,7 @@ function parseCsv(text) {
       if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else quoted = false; }
       else field += ch;
     } else if (ch === '"') quoted = true;
-    else if (ch === ",") { row.push(field); field = ""; }
+    else if (ch === delim) { row.push(field); field = ""; }
     else if (ch === "\n" || ch === "\r") {
       if (ch === "\r" && text[i + 1] === "\n") i++;
       row.push(field); rows.push(row); row = []; field = "";
@@ -2498,8 +2740,15 @@ function parseCsv(text) {
   return rows;
 }
 
-const NAME_COLUMNS = ["name", "card name", "card", "cardname", "card_name"];
-const COUNT_COLUMNS = ["count", "qty", "quantity", "amount", "copies"];
+// Column names used by collection apps, in order of preference.
+// ManaBox, Archidekt, Dragon Shield, Moxfield, Deckbox, TCGplayer ("Simple
+// Name" has no edition notes), MTGGoldfish ("Card"), Helvault, Deckstats
+// ("card_name", "amount"), Card Kingdom ("Qty"), Decked Builder ("Reg Qty"
+// plus "Foil Qty"), MTGO and others. Trade counts are part of the total, so
+// they are ignored.
+const NAME_COLUMNS = ["simple name", "name", "card name", "card", "card_name", "cardname"];
+const COUNT_COLUMNS = ["quantity", "count", "qty", "amount", "copies", "reg qty"];
+const EXTRA_COUNT_COLUMNS = ["foil qty"];
 const SECTION_LINES = /^(deck|main ?deck|sideboard|commander|companion|maybeboard|considering)\s*:?\s*$/i;
 
 // One line of a plain list: "4 Lightning Bolt", "4x Lightning Bolt" or just
@@ -2517,23 +2766,64 @@ function parseListLine(line) {
   return { name: s.trim(), qty };
 }
 
-// Reads a CSV with a name column (and optionally a count column) or a plain
-// list, one card per line. Duplicate names are added together.
+// The delimiter a spreadsheet file uses: a "sep=" line (Dragon Shield,
+// Excel) says so; otherwise whichever of , ; or tab the header uses most.
+function sniffDelimiter(firstLine) {
+  const sep = firstLine.match(/^"?sep=(.)"?\s*$/i);
+  if (sep) return { delim: sep[1], skip: 1 };
+  let best = ",", most = 0;
+  for (const d of [",", ";", "\t"]) {
+    const n = firstLine.split(d).length - 1;
+    if (n > most) { most = n; best = d; }
+  }
+  return { delim: best, skip: 0 };
+}
+
+// Reads the rows of a CSV that has a recognisable header within its first
+// few lines. Returns null when no name column is found.
+function csvEntries(text, delim) {
+  const rows = parseCsv(text, delim);
+  for (let h = 0; h < Math.min(5, rows.length); h++) {
+    const head = rows[h].map((x) => x.trim().toLowerCase());
+    let ni = -1;
+    for (const col of NAME_COLUMNS) { ni = head.indexOf(col); if (ni >= 0) break; }
+    if (ni < 0) continue;
+    let ci = -1;
+    for (const col of COUNT_COLUMNS) { ci = head.indexOf(col); if (ci >= 0) break; }
+    const extra = EXTRA_COUNT_COLUMNS.map((col) => head.indexOf(col)).filter((k) => k >= 0);
+    const num = (v) => { const n = parseInt(String(v || "").trim(), 10); return Number.isFinite(n) ? n : 0; };
+    return rows.slice(h + 1).map((r) => {
+      let qty = ci >= 0 && String(r[ci] || "").trim() !== "" ? num(r[ci]) : (extra.length ? 0 : 1);
+      for (const k of extra) qty += num(r[k]);
+      return { name: (r[ni] || "").trim(), qty };
+    });
+  }
+  return null;
+}
+
+// MTGO .dek files: <Cards Quantity="4" Name="Lightning Bolt" ... />
+function dekEntries(text) {
+  const out = [];
+  const attr = (tag, a) => { const m = tag.match(new RegExp("\\b" + a + '="([^"]*)"')); return m ? m[1] : ""; };
+  const unxml = (v) => v.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  for (const tag of text.match(/<Cards\b[^>]*>/g) || []) {
+    out.push({ name: unxml(attr(tag, "Name")), qty: parseInt(attr(tag, "Quantity"), 10) || 1 });
+  }
+  return out;
+}
+
+// Reads a collection file: our own CSV, another app's CSV, an MTGO .dek, or
+// a plain list with one card per line. Duplicate names are added together.
 function parseImport(text) {
   text = text.replace(/^﻿/, "");
   let entries = null;
-  const firstLine = (text.split(/\r?\n/, 1)[0] || "").toLowerCase();
-  if (firstLine.includes(",")) {
-    const rows = parseCsv(text);
-    const head = rows[0].map((h) => h.trim().toLowerCase());
-    const ni = head.findIndex((h) => NAME_COLUMNS.includes(h));
-    if (ni >= 0) {
-      const ci = head.findIndex((h) => COUNT_COLUMNS.includes(h));
-      entries = rows.slice(1).map((r) => ({
-        name: (r[ni] || "").trim(),
-        qty: ci >= 0 && String(r[ci] || "").trim() !== "" ? parseInt(r[ci], 10) : 1,
-      }));
-    }
+  if (/<Deck\b/.test(text) && /<Cards\b/.test(text)) entries = dekEntries(text);
+  if (!entries) {
+    const lines = text.split(/\r?\n/);
+    const { delim, skip } = sniffDelimiter(lines[0] || "");
+    if (skip) entries = csvEntries(lines.slice(skip).join("\n"), delim);
+    // The header may sit below a title line, so every delimiter gets a try.
+    else for (const d of [delim, ",", ";", "\t"]) { if ((entries = csvEntries(text, d))) break; }
   }
   if (!entries) entries = text.split(/\r?\n/).map(parseListLine).filter(Boolean);
   const merged = new Map();
@@ -2559,13 +2849,163 @@ function downloadFile(file) {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
+/* ---------- Card printings (for ManaBox export) ---------- */
+// The background worker (printingsWorkerSrc) downloads and saves them; this
+// side starts it, shows progress, and reads the saved copy when needed.
+function idbGet(key) {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open("instantsorcery", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("data");
+      req.onerror = () => resolve(null);
+      req.onsuccess = () => {
+        const db = req.result;
+        try {
+          const get = db.transaction("data").objectStore("data").get(key);
+          get.onsuccess = () => { db.close(); resolve(get.result || null); };
+          get.onerror = () => { db.close(); resolve(null); };
+        } catch (e) { db.close(); resolve(null); }
+      };
+    } catch (e) { resolve(null); }
+  });
+}
+
+// Reads the saved printings into a lookup by name. Double-faced and split
+// cards are found by their full name or by either face.
+function loadPrintings(force) {
+  if (printings.byName && !force) return Promise.resolve(printings.byName);
+  if (!printings.loading) {
+    printings.loading = idbGet("printings").then((rec) => {
+      printings.loading = null;
+      if (!rec || !rec.rows) return printings.byName;
+      const map = new Map();
+      for (const r of rec.rows) {
+        const key = normName(r[0]);
+        if (!map.has(key)) map.set(key, r);
+      }
+      for (const r of rec.rows) {
+        if (!r[0].includes("//")) continue;
+        for (const face of r[0].split("//")) { const k = normName(face); if (!map.has(k)) map.set(k, r); }
+      }
+      printings.byName = map; // replaces any older copy only once this one is ready
+      setRowHeight(true);
+      return map;
+    });
+  }
+  return printings.loading;
+}
+function printingOf(name) {
+  const map = printings.byName;
+  if (!map) return null;
+  return map.get(normName(name)) || (name.includes("//") ? map.get(normName(name.split("//")[0])) : null) || null;
+}
+
+function refreshPrintings() {
+  if (printings.job) return printings.job;
+  printings.error = "";
+  printings.fraction = 0;
+  printings.job = new Promise((resolve, reject) => {
+    let worker;
+    try {
+      const src = $("printingsWorkerSrc").textContent;
+      worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+    } catch (e) { reject(new Error("this browser can't run the download in the background")); return; }
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === "progress") { printings.fraction = m.fraction; showPrintingsInfo(); return; }
+      worker.terminate();
+      if (m.type === "done") {
+        printings.meta = { t: m.t, count: m.count };
+        store.set(PRINTINGS_META_KEY, JSON.stringify(printings.meta));
+        // Read the new copy in; the list shows the old sets until it's ready.
+        loadPrintings(true).then(resolve, resolve);
+      } else reject(new Error(m.message || "download failed"));
+    };
+    worker.onerror = (e) => { worker.terminate(); reject(new Error((e && e.message) || "download failed")); };
+    worker.postMessage({ cmd: "refresh" });
+  }).catch((err) => {
+    printings.error = err.message;
+    throw err;
+  }).finally(() => {
+    printings.job = null;
+    showPrintingsInfo();
+  });
+  showPrintingsInfo();
+  return printings.job;
+}
+
+function setProgress(el, fraction) {
+  el.hidden = fraction === null;
+  if (fraction !== null) el.firstElementChild.style.width = Math.round(fraction * 100) + "%";
+}
+
+// Keeps the Settings section and the ManaBox choice in Export up to date.
+function showPrintingsInfo() {
+  const m = printings.meta, busy = !!printings.job;
+  const pct = Math.round(printings.fraction * 100);
+  const info = $("printingsInfo"), btn = $("refreshPrintings");
+  if (busy) info.textContent = `Downloading from Scryfall… ${pct}%` + (m ? " The saved copy is used until this finishes." : "");
+  else if (printings.error) info.textContent = `Couldn't download printings: ${printings.error}.` + (m ? ` Using the copy fetched ${fetchedText(m.t)}.` : "");
+  else if (m) info.textContent = `${m.count.toLocaleString()} cards, last fetched ${fetchedText(m.t)}.` + (Date.now() - m.t >= WEEK ? " Due for a refresh." : "");
+  else info.textContent = "Not downloaded. Only needed to export for ManaBox, which wants a set for every card.";
+  btn.disabled = busy;
+  btn.textContent = busy ? "Downloading…" : m ? "Refresh from Scryfall" : "Download from Scryfall";
+  setProgress($("printingsProgress"), busy ? printings.fraction : null);
+  updateExportDialog();
+}
+
+$("refreshPrintings").addEventListener("click", () => { refreshPrintings().catch(() => {}); });
+
+// A saved copy over a week old is refreshed in the background, a little
+// after the page opens, unless the phone is saving data or offline.
+function maybeRefreshPrintings() {
+  const m = printings.meta;
+  if (!m || Date.now() - m.t < WEEK || printings.job) return;
+  if (navigator.onLine === false || (navigator.connection && navigator.connection.saveData)) return;
+  refreshPrintings().catch(() => {});
+}
+setTimeout(maybeRefreshPrintings, 8000);
+// Saved printings are read in once the page has settled, for the set line in the list.
+if (printings.meta) {
+  const later = window.requestIdleCallback || ((f) => setTimeout(f, 300));
+  later(() => loadPrintings().then((map) => {
+    if (!map) { printings.meta = null; store.del(PRINTINGS_META_KEY); showPrintingsInfo(); }
+  }), { timeout: 2000 });
+}
+
+/* ---------- Export ---------- */
 // On a phone, Export opens the share sheet (Google Drive, iCloud Drive,
 // Files, email...). Elsewhere, or if sharing isn't available, it downloads.
-// The share call must come straight from the tap, with nothing awaited first.
-$("exportBtn").addEventListener("click", () => {
-  closeListMenu(false);
-  if (!cards.length) return; // the menu item is disabled when the list is empty
-  const file = new File([collectionCsv(cards)], `instantsorcery-collection-${todayStamp()}.csv`, { type: "text/csv" });
+// The share call must come straight from the tap, with nothing awaited first,
+// so ManaBox printings are read in as soon as that choice is shown.
+const exportDialog = $("exportDialog");
+const EXPORT_FORMAT_KEY = "cns.exportFormat";
+function exportFormat() { const r = exportDialog.querySelector('input[name="exportFormat"]:checked'); return r ? r.value : "csv"; }
+function closeExportDialog() { if (exportDialog.close) exportDialog.close(); else exportDialog.removeAttribute("open"); }
+
+function updateExportDialog() {
+  const go = $("exportGo"), note = $("manaboxNote");
+  const m = printings.meta, busy = !!printings.job;
+  const base = "Adds a set to each card, using Scryfall's usual printing, so check sets in ManaBox afterwards.";
+  if (busy) note.textContent = `${base} Downloading printings… ${Math.round(printings.fraction * 100)}%`;
+  else if (printings.error && !m) note.textContent = `${base} Couldn't download printings: ${printings.error}.`;
+  else if (m) note.textContent = `${base} Printings fetched ${fetchedText(m.t)}.`;
+  else note.textContent = `${base} Needs Scryfall's printings first: a one-off download of about 25 MB, refreshed weekly.`;
+  setProgress($("exportProgress"), busy ? printings.fraction : null);
+
+  if (exportFormat() !== "manabox") { go.textContent = "Export"; go.disabled = false; return; }
+  if (busy) { go.textContent = "Downloading…"; go.disabled = true; }
+  else if (!m) { go.textContent = printings.error ? "Try again" : "Download printings"; go.disabled = false; }
+  else if (!printings.byName) {
+    go.textContent = "Export"; go.disabled = true;
+    if (exportDialog.open) loadPrintings().then((map) => {
+      if (!map) { printings.meta = null; store.del(PRINTINGS_META_KEY); } // the browser cleared it
+      showPrintingsInfo();
+    });
+  } else { go.textContent = "Export"; go.disabled = false; }
+}
+
+function shareOrDownload(file) {
   const phone = window.matchMedia && matchMedia("(pointer: coarse)").matches;
   if (phone && navigator.canShare && navigator.canShare({ files: [file] })) {
     navigator.share({ files: [file], title: file.name }).catch((e) => {
@@ -2573,6 +3013,39 @@ $("exportBtn").addEventListener("click", () => {
     });
   } else {
     downloadFile(file);
+  }
+}
+
+$("exportBtn").addEventListener("click", () => {
+  closeListMenu(false);
+  if (!cards.length) return; // the menu item is disabled when the list is empty
+  const saved = store.get(EXPORT_FORMAT_KEY);
+  const radio = saved && exportDialog.querySelector(`input[name="exportFormat"][value="${saved}"]`);
+  if (radio) radio.checked = true;
+  updateExportDialog();
+  if (exportDialog.showModal) exportDialog.showModal(); else exportDialog.setAttribute("open", "");
+});
+exportDialog.addEventListener("change", () => { store.set(EXPORT_FORMAT_KEY, exportFormat()); updateExportDialog(); });
+$("exportCancel").addEventListener("click", closeExportDialog);
+exportDialog.addEventListener("click", (e) => { if (e.target === exportDialog) closeExportDialog(); });
+$("exportGo").addEventListener("click", () => {
+  const fmt = exportFormat(), day = todayStamp();
+  if (fmt === "manabox" && !printings.byName) { refreshPrintings().catch(() => {}); return; }
+  let file, missing = [];
+  if (fmt === "txt") {
+    file = new File([textList(cards)], `instantsorcery-collection-${day}.txt`, { type: "text/plain" });
+  } else if (fmt === "manabox") {
+    const out = manaboxCsv(cards, printingOf);
+    missing = out.missing;
+    file = new File([out.text], `instantsorcery-manabox-${day}.csv`, { type: "text/csv" });
+  } else {
+    file = new File([collectionCsv(cards)], `instantsorcery-collection-${day}.csv`, { type: "text/csv" });
+  }
+  closeExportDialog();
+  shareOrDownload(file);
+  if (missing.length) {
+    const n = missing.reduce((k, c) => k + c.qty, 0);
+    showNotice("Left out", `${n.toLocaleString()} card${n === 1 ? "" : "s"} with no printing`);
   }
 });
 
@@ -2597,7 +3070,8 @@ $("importFile").addEventListener("change", async () => {
   if (!index) { try { await loadNames(false, true); } catch (e) {} }
   if (index && list.length) {
     for (const c of list) {
-      const e = index.exact.get(normName(c.name));
+      // TCGplayer and others may add notes like "(Borderless)" to a name.
+      const e = index.exact.get(normName(c.name)) || index.exact.get(normName(c.name.replace(/\s*\([^)]*\)\s*$/, "")));
       if (e) c.name = e.name; else unknown++;
     }
     const merged = new Map();
@@ -2612,7 +3086,7 @@ $("importFile").addEventListener("change", async () => {
   const add = $("importAdd"), replace = $("importReplace"), cancel = $("importCancel");
   if (!list.length) {
     $("importSummary").textContent = `No cards found in ${f.name}.`;
-    $("importNote").textContent = "Use a CSV with Count and Name columns, like the one Export makes, or a list with one card per line, such as “4 Lightning Bolt”.";
+    $("importNote").textContent = "Use a CSV from Export here or from another collection app (ManaBox, Moxfield, Archidekt, Dragon Shield, Deckbox, TCGplayer and others), or a list with one card per line, such as “4 Lightning Bolt”.";
     $("importNote").hidden = false;
     add.hidden = replace.hidden = true;
     cancel.textContent = "Close";
@@ -2740,6 +3214,9 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !settingsPanel.hidden) { setSettingsOpen(false); settingsBtn.focus(); }
 });
 // Both start on; a choice you change is remembered in this browser.
+showNamesInfo();
+showPrintingsInfo();
+
 for (const id of ["soundToggle", "splitToggle"]) {
   const box = $(id);
   const saved = store.get("cns." + id);
