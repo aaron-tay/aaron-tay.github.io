@@ -806,7 +806,8 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
      a few fields per card, and saves the small result in IndexedDB. The
      whole file is never held in memory, and the scanner keeps running. -->
 <script type="text/js-worker" id="printingsWorkerSrc">
-const META_URL = "https://api.scryfall.com/bulk-data/oracle-cards";
+const API = "https://api.scryfall.com/bulk-data";
+const TYPICAL_SIZE = 160e6; // unpacked bytes, for progress when Scryfall doesn't say
 // Not cards you can own: these never appear in the card-name list either.
 const SKIP_LAYOUTS = new Set(["token", "double_faced_token", "emblem", "art_series"]);
 const STALL_MS = 60000; // give up if nothing arrives for a minute
@@ -827,28 +828,65 @@ self.onmessage = async (e) => {
   const kick = () => { clearTimeout(stall); stall = setTimeout(() => ctl.abort(), STALL_MS); };
   try {
     kick();
-    const metaRes = await fetch(META_URL, { signal: ctl.signal, headers: { Accept: "application/json" } });
-    if (!metaRes.ok) throw new Error("Scryfall answered " + metaRes.status);
-    const meta = await metaRes.json();
-    if (!meta || !meta.download_uri) throw new Error("unexpected reply from Scryfall");
+    // Where today's file is: asked for directly, then via the full list, and
+    // failing both, Scryfall's format=file address, which redirects to the file.
+    const said = [];
+    const getJson = async (url) => {
+      const r = await fetch(url, { signal: ctl.signal, headers: { Accept: "application/json" } });
+      const text = await r.text();
+      let j = null;
+      try { j = JSON.parse(text); } catch (e) {}
+      if (!r.ok || !j) said.push(r.status + " " + (j && (j.details || j.object) || text.slice(0, 80).replace(/\s+/g, " ")));
+      return r.ok ? j : null;
+    };
+    let meta = await getJson(API + "/oracle-cards").catch((e) => { said.push(e.message); return null; });
+    if (!meta || !meta.download_uri) {
+      if (meta) said.push("reply had no file address (" + Object.keys(meta).slice(0, 6).join(", ") + ")");
+      const list = await getJson(API).catch((e) => { said.push(e.message); return null; });
+      const found = list && Array.isArray(list.data) && list.data.find((b) => b.type === "oracle_cards" && b.download_uri);
+      meta = found || { download_uri: API + "/oracle-cards?format=file" };
+    }
+    console.info("Printings file:", meta.download_uri, said.length ? "(after: " + said.join("; ") + ")" : "");
 
     const res = await fetch(meta.download_uri, { signal: ctl.signal });
-    if (!res.ok || !res.body) throw new Error("Scryfall answered " + res.status);
-    const total = meta.size || 0; // unpacked size in bytes
-    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-    const rows = [];
-    let buf = "", seen = 0, lastPost = 0;
+    if (!res.ok || !res.body) {
+      said.push("file: " + res.status);
+      throw new Error("Scryfall didn't send the file (" + said.join("; ") + ")");
+    }
+    const total = meta.size || TYPICAL_SIZE; // unpacked size in bytes
 
-    // One card per line: '{...},'. The opening '[' and closing ']' lines are skipped.
+    // The browser unpacks the file itself when Scryfall labels it as
+    // compressed. If it arrives still gzipped (it starts with bytes 1F 8B),
+    // it's unpacked here instead of being read as text.
+    const raw = res.body.getReader();
+    const first = await raw.read();
+    const gzipped = !!first.value && first.value[0] === 0x1f && first.value[1] === 0x8b;
+    let body = new ReadableStream({
+      start(c) { if (first.value) c.enqueue(first.value); if (first.done) c.close(); },
+      async pull(c) { const { value, done } = await raw.read(); if (done) c.close(); else c.enqueue(value); },
+      cancel(reason) { raw.cancel(reason); },
+    });
+    if (gzipped) body = body.pipeThrough(new DecompressionStream("gzip"));
+    const reader = body.pipeThrough(new TextDecoderStream()).getReader();
+
+    // JSON Lines: every line is one card, {...}, read with JSON.parse.
+    const rows = [];
+    let seen = 0, lastPost = 0, lastYield = performance.now(), lineNo = 0;
     const take = (line) => {
+      lineNo++;
       line = line.trim();
-      if (line.charCodeAt(0) !== 123) return; // "{"
-      if (line.endsWith(",")) line = line.slice(0, -1);
-      const c = JSON.parse(line);
-      if (!c.name || SKIP_LAYOUTS.has(c.layout)) return;
+      if (!line) return;
+      let c;
+      try { c = JSON.parse(line); }
+      catch (e) { throw new Error(`line ${lineNo} isn't a card (${gzipped ? "unpacked here" : "as sent"}): ${JSON.stringify(line.slice(0, 40))}`); }
+      if (!c || !c.name || SKIP_LAYOUTS.has(c.layout)) return;
       rows.push([c.name, c.set || "", c.set_name || "", c.collector_number || "", c.id || "", c.rarity || ""]);
     };
+    // Run on the page itself (no worker), it reads in short bursts so the
+    // page can draw in between. In a worker it just keeps going.
+    const onPage = typeof WorkerGlobalScope === "undefined";
 
+    let buf = "";
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -856,7 +894,15 @@ self.onmessage = async (e) => {
       seen += value.length;
       buf += value;
       let start = 0, nl;
-      while ((nl = buf.indexOf("\n", start)) >= 0) { take(buf.slice(start, nl)); start = nl + 1; }
+      while ((nl = buf.indexOf("\n", start)) >= 0) {
+        take(buf.slice(start, nl));
+        start = nl + 1;
+        if (onPage && performance.now() - lastYield > 10) {
+          buf = buf.slice(start); start = 0;
+          await new Promise((r) => setTimeout(r, 0));
+          lastYield = performance.now();
+        }
+      }
       buf = buf.slice(start);
       const now = Date.now();
       if (now - lastPost > 200) {
@@ -866,7 +912,7 @@ self.onmessage = async (e) => {
     }
     take(buf);
     clearTimeout(stall);
-    if (rows.length < 1000) throw new Error("the file from Scryfall looks incomplete");
+    if (rows.length < 1000) throw new Error("the file from Scryfall looks incomplete (" + rows.length + " cards)");
 
     // Saved in one step, so the previous copy stays until this one is complete.
     const record = { t: Date.now(), updated: meta.updated_at || "", rows };
@@ -2905,15 +2951,9 @@ function refreshPrintings() {
   printings.error = "";
   printings.fraction = 0;
   printings.job = new Promise((resolve, reject) => {
-    let worker;
-    try {
-      const src = $("printingsWorkerSrc").textContent;
-      worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
-    } catch (e) { reject(new Error("this browser can't run the download in the background")); return; }
-    worker.onmessage = (e) => {
-      const m = e.data;
+    const onMessage = (m, stop) => {
       if (m.type === "progress") { printings.fraction = m.fraction; showPrintingsInfo(); return; }
-      worker.terminate();
+      stop();
       if (m.type === "done") {
         printings.meta = { t: m.t, count: m.count };
         store.set(PRINTINGS_META_KEY, JSON.stringify(printings.meta));
@@ -2921,8 +2961,32 @@ function refreshPrintings() {
         loadPrintings(true).then(resolve, resolve);
       } else reject(new Error(m.message || "download failed"));
     };
-    worker.onerror = (e) => { worker.terminate(); reject(new Error((e && e.message) || "download failed")); };
-    worker.postMessage({ cmd: "refresh" });
+    const src = $("printingsWorkerSrc").textContent;
+    let worker = null;
+    try {
+      worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+    } catch (e) {
+      console.warn("Printings worker unavailable, downloading on the page instead:", e);
+    }
+    if (worker) {
+      let started = false;
+      worker.onmessage = (e) => { started = true; onMessage(e.data, () => worker.terminate()); };
+      worker.onerror = (e) => {
+        worker.terminate();
+        // A worker that fails before doing anything: run the same code on the page.
+        if (!started) { console.warn("Printings worker failed to start:", e && e.message); runOnPage(); }
+        else reject(new Error((e && e.message) || "download failed"));
+      };
+      worker.postMessage({ cmd: "refresh" });
+    } else runOnPage();
+
+    // The same streaming code, run on the page with a stand-in for the worker.
+    function runOnPage() {
+      const scope = { onmessage: null, postMessage: (m) => onMessage(m, () => {}) };
+      try { new Function("self", src)(scope); }
+      catch (e) { reject(new Error("couldn't start the download (" + (e && e.message) + ")")); return; }
+      scope.onmessage({ data: { cmd: "refresh" } });
+    }
   }).catch((err) => {
     printings.error = err.message;
     throw err;
