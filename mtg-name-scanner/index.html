@@ -288,6 +288,9 @@ select.chip option { color: #16201b; background: #f7f9f8; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .modal h2 { font-size: 1.2rem; }
 .modal-head button { padding: 4px 10px; font-size: .9rem; }
+.modal p { margin: 0; }
+.modal .muted { color: var(--muted); font-size: .9rem; }
+.modal-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
 
 /* Reading line along the bottom edge, below the outline */
 .stage-foot {
@@ -347,20 +350,85 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
 .actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .actions button { padding: 5px 10px; font-size: .9rem; }
 
-ol.list { list-style: none; margin: 0; padding: 0; max-height: 56vh; overflow-y: auto; }
-ol.list li {
+/* ⋮ menu holding Copy list, Export and Import */
+.menu-wrap { position: relative; }
+.kebab {
+  width: 32px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.kebab svg { width: 18px; height: 18px; display: block; }
+.kebab[aria-expanded="true"] { border-color: var(--accent); }
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 170px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+.menu button {
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  font-size: .95rem;
+  white-space: nowrap;
+}
+.menu button:hover:not(:disabled), .menu button:focus-visible { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.menu button:focus-visible { outline-offset: -2px; }
+.menu button:disabled { color: var(--muted); opacity: .6; cursor: default; }
+
+/* Search above the list */
+.search {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 1rem; /* 16px or more stops iPhones zooming in on focus */
+}
+.search::placeholder { color: var(--muted); }
+.search-info { margin: 0; color: var(--muted); font-size: .88rem; }
+
+/* Virtual list: only the rows in view exist, and they are reused as the
+   list scrolls. Every row is the same height so positions are simple. */
+.list {
+  --row-h: 44px;
+  position: relative;
+  max-height: 56vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.list-spacer { position: relative; }
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--row-h);
   display: grid;
-  grid-template-columns: 2.4em minmax(0, 1fr) auto;
+  grid-template-columns: 3.2em minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 7px 0;
   border-top: 1px solid var(--line);
 }
-ol.list li:first-child { border-top: 0; }
-ol.list li.fresh { animation: fresh 1.2s ease-out; }
+.row.first { border-top: 0; }
+.row.fresh { animation: fresh 1.2s ease-out; }
 @keyframes fresh { from { background: color-mix(in srgb, var(--accent) 22%, transparent); } to { background: transparent; } }
 .qty { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); text-align: right; }
-.cname { font-family: var(--font-name); font-weight: 500; font-size: 1.08rem; overflow-wrap: anywhere; color: var(--ink); text-decoration: none; }
+.cname { font-family: var(--font-name); font-weight: 500; font-size: 1.08rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); text-decoration: none; }
 .cname:hover { text-decoration: underline; text-decoration-color: var(--accent); }
 .rowbtns { display: flex; gap: 4px; }
 .rowbtns button { padding: 2px 9px; font-size: .95rem; line-height: 1.3; }
@@ -439,7 +507,7 @@ ol.list li.fresh { animation: fresh 1.2s ease-out; }
 
 @media (prefers-reduced-motion: reduce) {
   .toast { animation: none; }
-  ol.list li.fresh { animation: none; }
+  .row.fresh { animation: none; }
   .guide-band { transition: none; }
 }
 </style>
@@ -509,13 +577,26 @@ ol.list li.fresh { animation: fresh 1.2s ease-out; }
     <div class="log-head">
       <h2>Scanned <span class="count" id="total">0 cards</span></h2>
       <div class="actions">
-        <button type="button" id="copyBtn">Copy list</button>
-        <button type="button" id="downloadBtn">Download .txt</button>
         <button type="button" id="clearBtn">Clear</button>
+        <div class="menu-wrap">
+          <button type="button" class="kebab" id="listMenuBtn" aria-label="More actions" title="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="listMenu">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5.5" r="1.9" fill="currentColor"/><circle cx="12" cy="12" r="1.9" fill="currentColor"/><circle cx="12" cy="18.5" r="1.9" fill="currentColor"/></svg>
+          </button>
+          <div class="menu" id="listMenu" role="menu" aria-label="List actions" hidden>
+            <button type="button" role="menuitem" id="copyBtn">Copy list</button>
+            <button type="button" role="menuitem" id="exportBtn">Export</button>
+            <button type="button" role="menuitem" id="importBtn">Import</button>
+          </div>
+        </div>
       </div>
+      <input type="file" id="importFile" class="visually-hidden" tabindex="-1" aria-hidden="true" accept=".csv,.txt,text/csv,text/plain">
     </div>
-    <p class="empty" id="empty">Each card you scan is added here with a count. Copy the list as "quantity name" lines to paste into a deck builder or your own database.</p>
-    <ol class="list" id="list"></ol>
+    <p class="empty" id="empty">Each card you scan is added here with a count. The ⋮ menu has Export, which saves the list as a file you can keep in Google Drive, iCloud or anywhere else, and Import, which loads it back.</p>
+    <input type="search" class="search" id="searchInput" placeholder="Search your cards" aria-label="Search your cards" autocomplete="off" spellcheck="false" hidden>
+    <p class="search-info" id="searchInfo" aria-live="polite" hidden></p>
+    <div class="list" id="list" role="list" aria-label="Scanned cards">
+      <div class="list-spacer" id="listSpacer"></div>
+    </div>
     <div class="actions" id="clearConfirm" hidden>
       <span>Clear all scanned cards?</span>
       <button type="button" id="clearYes">Clear</button>
@@ -533,10 +614,25 @@ ol.list li.fresh { animation: fresh 1.2s ease-out; }
 </footer>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden>
-  <span class="toast-msg">Removed <span class="toast-name" id="toastText"></span></span>
+  <span class="toast-msg"><span id="toastVerb">Removed</span> <span class="toast-name" id="toastText"></span></span>
   <button type="button" id="toastUndo">Undo</button>
   <span class="toast-timer" id="toastTimer" aria-hidden="true"></span>
 </div>
+
+<dialog class="modal" id="importDialog" aria-labelledby="importTitle">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <h2 id="importTitle">Import cards</h2>
+    </div>
+    <p id="importSummary"></p>
+    <p class="muted" id="importNote" hidden></p>
+    <div class="modal-actions">
+      <button type="button" class="primary" id="importAdd">Add to my list</button>
+      <button type="button" id="importReplace">Replace my list</button>
+      <button type="button" id="importCancel">Cancel</button>
+    </div>
+  </div>
+</dialog>
 
 <dialog class="modal" id="tipsDialog" aria-labelledby="tipsTitle">
   <div class="modal-inner">
@@ -551,6 +647,7 @@ ol.list li.fresh { animation: fresh 1.2s ease-out; }
       <li>Tilt foils away from lights to avoid glare on the name.</li>
       <li>Older cards print the name straight onto a textured frame. Bright, even light helps most, and a reflection across the name can hide letters completely.</li>
       <li>Move each card out of the outline before the next. Scanning the same card again adds another copy.</li>
+      <li>Your list is stored only in this browser. Export it now and then: clearing site data or removing the app deletes it.</li>
       <li>If the name looks soft, the camera can't focus that close. Hold the card a little further back.</li>
       <li>The page picks the rear camera that focuses closest. Use the camera menu at the top left to choose another; your choice is remembered.</li>
     </ul>
@@ -788,7 +885,8 @@ async function fetchScryfallNames() {
   return json.data;
 }
 
-async function loadNames(force) {
+// quiet: no status messages and no opening Settings on failure (used by Import).
+async function loadNames(force, quiet) {
   let cached = null;
   try { cached = JSON.parse(store.get(NAMES_KEY) || "null"); } catch (e) {}
   if (cached && cached.custom && !force) { useNames(cached.names, "your own list"); return; }
@@ -796,7 +894,7 @@ async function loadNames(force) {
     useNames(cached.names, "Scryfall (saved " + new Date(cached.t).toLocaleDateString() + ")");
     return;
   }
-  setStatus("Downloading card names from Scryfall…", "busy");
+  if (!quiet) setStatus("Downloading card names from Scryfall…", "busy");
   try {
     const names = await fetchScryfallNames();
     store.set(NAMES_KEY, JSON.stringify({ t: Date.now(), names }));
@@ -805,7 +903,7 @@ async function loadNames(force) {
     if (cached && cached.names) {
       useNames(cached.names, "an older saved copy");
     } else {
-      setSettingsOpen(true);
+      if (!quiet) setSettingsOpen(true);
       throw new Error("Couldn't download card names from Scryfall. Check your connection, or load your own list in Settings.");
     }
   }
@@ -1574,7 +1672,16 @@ const LIST_KEY = "cns.list.v1";
 let cards = []; // [{name, qty}], most recent first
 try { cards = JSON.parse(store.get(LIST_KEY) || "[]") || []; } catch (e) { cards = []; }
 
-function saveList() { store.set(LIST_KEY, JSON.stringify(cards)); }
+// Saves the list in this browser. The first save also asks the browser to
+// treat the data as persistent, so it isn't cleared when space runs low.
+let persistAsked = false;
+function saveList() {
+  store.set(LIST_KEY, JSON.stringify(cards));
+  if (!persistAsked && navigator.storage && navigator.storage.persist) {
+    persistAsked = true;
+    navigator.storage.persist().catch(() => {});
+  }
+}
 function scryfallUrl(name) { return "https://scryfall.com/search?q=" + encodeURIComponent('!"' + name + '"'); }
 
 function addCard(name) {
@@ -1586,52 +1693,141 @@ function addCard(name) {
   try { onCardScanned(name); } catch (e) { console.error(e); }
 }
 
-function renderList(freshName) {
-  const list = $("list");
-  list.innerHTML = "";
-  let total = 0;
-  for (const c of cards) {
-    total += c.qty;
-    const li = document.createElement("li");
-    if (c.name === freshName) li.className = "fresh";
-    const q = document.createElement("span"); q.className = "qty"; q.textContent = c.qty + "×";
-    const a = document.createElement("a"); a.className = "cname"; a.href = scryfallUrl(c.name);
-    a.target = "_blank"; a.rel = "noopener"; a.textContent = c.name; a.title = "Look up on Scryfall";
-    const btns = document.createElement("span"); btns.className = "rowbtns";
-    const minus = document.createElement("button"); minus.type = "button"; minus.textContent = "−";
-    minus.setAttribute("aria-label", "Remove one " + c.name);
-    minus.addEventListener("click", () => {
-      c.qty--;
-      if (c.qty <= 0) {
-        const at = cards.indexOf(c);
-        cards.splice(at, 1);
-        showUndoToast(c.name, at);
-      }
-      saveList(); renderList();
-    });
-    const plus = document.createElement("button"); plus.type = "button"; plus.textContent = "+";
-    plus.setAttribute("aria-label", "Add one " + c.name);
-    plus.addEventListener("click", () => { c.qty++; saveList(); renderList(); });
-    btns.append(minus, plus);
-    li.append(q, a, btns);
-    list.appendChild(li);
-  }
-  $("total").textContent = `${total} card${total === 1 ? "" : "s"}`;
-  $("empty").hidden = cards.length > 0;
+/* ---------- Virtual list ----------
+   Only the rows in view (plus a few either side) exist on the page. As the
+   list scrolls, the same row elements are given different cards, so drawing
+   costs the same for 50 cards or 10,000. */
+const ROW_H = 44, OVERSCAN = 6;
+const listEl = $("list"), spacer = $("listSpacer");
+const rowPool = [];
+let view = [];          // the cards shown: all of them, or those matching the search
+let query = "";         // the search, normalised like card names
+let freshName = null, freshUntil = 0;
+const normCache = new Map();
+function normFor(name) {
+  let v = normCache.get(name);
+  if (v === undefined) { v = normName(name); normCache.set(name, v); }
+  return v;
 }
+
+function makeRow() {
+  const row = document.createElement("div");
+  row.className = "row";
+  row.setAttribute("role", "listitem");
+  const q = document.createElement("span"); q.className = "qty";
+  const a = document.createElement("a"); a.className = "cname"; a.target = "_blank"; a.rel = "noopener";
+  const btns = document.createElement("span"); btns.className = "rowbtns";
+  const minus = document.createElement("button"); minus.type = "button"; minus.textContent = "−"; minus.dataset.act = "minus";
+  const plus = document.createElement("button"); plus.type = "button"; plus.textContent = "+"; plus.dataset.act = "plus";
+  btns.append(minus, plus);
+  row.append(q, a, btns);
+  spacer.appendChild(row);
+  return row;
+}
+
+function drawRows() {
+  const top = listEl.scrollTop, height = listEl.clientHeight || ROW_H * 12;
+  const first = Math.max(0, Math.floor(top / ROW_H) - OVERSCAN);
+  const last = Math.min(view.length, Math.ceil((top + height) / ROW_H) + OVERSCAN);
+  while (rowPool.length < last - first) rowPool.push(makeRow());
+  const now = performance.now();
+  for (let k = 0; k < rowPool.length; k++) {
+    const row = rowPool[k], i = first + k;
+    if (i >= last) { row.hidden = true; continue; }
+    const c = view[i];
+    row.hidden = false;
+    row.style.transform = `translateY(${i * ROW_H}px)`;
+    row.classList.toggle("first", i === 0);
+    row.setAttribute("aria-posinset", i + 1);
+    row.setAttribute("aria-setsize", view.length);
+    row.children[0].textContent = c.qty + "×";
+    if (row.dataset.name !== c.name) {
+      row.dataset.name = c.name;
+      const a = row.children[1];
+      a.textContent = c.name;
+      a.title = c.name;
+      a.href = scryfallUrl(c.name);
+      row.children[2].children[0].setAttribute("aria-label", "Remove one " + c.name);
+      row.children[2].children[1].setAttribute("aria-label", "Add one " + c.name);
+    }
+    row.classList.toggle("fresh", c.name === freshName && now < freshUntil);
+  }
+}
+let drawQueued = false;
+listEl.addEventListener("scroll", () => {
+  if (drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(() => { drawQueued = false; drawRows(); });
+}, { passive: true });
+if (window.ResizeObserver) new ResizeObserver(() => drawRows()).observe(listEl);
+
+function renderList(fresh) {
+  if (fresh) { freshName = fresh; freshUntil = performance.now() + 1200; }
+  let total = 0;
+  for (const c of cards) total += c.qty;
+  $("total").textContent = `${total.toLocaleString()} card${total === 1 ? "" : "s"}`;
+  $("empty").hidden = cards.length > 0;
+  $("searchInput").hidden = cards.length === 0 && !query;
+  view = query ? cards.filter((c) => normFor(c.name).includes(query)) : cards;
+  const info = $("searchInfo");
+  if (query) {
+    info.hidden = false;
+    info.textContent = view.length
+      ? `${view.length.toLocaleString()} of ${cards.length.toLocaleString()} different cards match.`
+      : `No cards match “${$("searchInput").value.trim()}”.`;
+  } else {
+    info.hidden = true;
+  }
+  spacer.style.height = view.length * ROW_H + "px";
+  drawRows();
+}
+
+// One listener for every row's − and + buttons.
+listEl.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const name = btn.closest(".row").dataset.name;
+  const c = cards.find((x) => x.name === name);
+  if (!c) return;
+  if (btn.dataset.act === "plus") {
+    c.qty++;
+  } else if (--c.qty <= 0) {
+    const at = cards.indexOf(c);
+    cards.splice(at, 1);
+    showUndoToast("Removed", name, () => {
+      const existing = cards.find((x) => x.name === name); // scanned again meanwhile
+      if (existing) existing.qty++;
+      else cards.splice(Math.min(at, cards.length), 0, { name, qty: 1 });
+      saveList();
+      renderList(name);
+    });
+  }
+  saveList();
+  renderList();
+});
+
+$("searchInput").addEventListener("input", () => {
+  query = normName($("searchInput").value);
+  listEl.scrollTop = 0;
+  renderList();
+});
+
 renderList();
 
-// Removing a card's last copy offers Undo for 10 seconds. A newer removal
-// replaces the toast, and Undo then restores that newer one.
+// Removing a card's last copy, or importing, offers Undo for 10 seconds. A
+// newer action replaces the toast, and Undo then reverses that newer one.
 const UNDO_MS = 10000;
-let toastTimer = null, undoInfo = null;
-function showUndoToast(name, at) {
-  undoInfo = { name, at };
-  $("toastText").textContent = name;
-  $("toastText").title = name;
+let toastTimer = null, undoAction = null;
+function showUndoToast(verb, label, undo) {
+  undoAction = undo;
+  $("toastVerb").textContent = verb;
+  $("toastText").textContent = label;
+  $("toastText").title = label;
+  $("toastUndo").hidden = false;
   $("toast").hidden = false;
   // Restart the countdown bar from full.
   const bar = $("toastTimer");
+  bar.hidden = false;
   bar.classList.remove("run");
   void bar.offsetWidth;
   bar.style.animationDuration = UNDO_MS + "ms";
@@ -1639,38 +1835,236 @@ function showUndoToast(name, at) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(hideToast, UNDO_MS);
 }
+// A short confirmation with nothing to undo, such as "Copied 120 cards".
+function showNotice(verb, label = "") {
+  undoAction = null;
+  $("toastVerb").textContent = verb;
+  $("toastText").textContent = label;
+  $("toastText").title = label;
+  $("toastUndo").hidden = true;
+  $("toastTimer").hidden = true;
+  $("toast").hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 2500);
+}
+function cardCountText() {
+  const total = cards.reduce((n, c) => n + c.qty, 0);
+  return `${total.toLocaleString()} card${total === 1 ? "" : "s"}`;
+}
 function hideToast() {
   clearTimeout(toastTimer);
   $("toast").hidden = true;
-  undoInfo = null;
+  undoAction = null;
 }
 $("toastUndo").addEventListener("click", () => {
-  if (!undoInfo) return;
-  const { name, at } = undoInfo;
-  const existing = cards.find((x) => x.name === name); // scanned again meanwhile
-  if (existing) existing.qty++;
-  else cards.splice(Math.min(at, cards.length), 0, { name, qty: 1 });
-  saveList();
-  renderList(name);
+  const undo = undoAction;
   hideToast();
+  if (undo) undo();
 });
 
 function listText() { return cards.map((c) => `${c.qty} ${c.name}`).join("\n"); }
 
 $("copyBtn").addEventListener("click", async () => {
-  const btn = $("copyBtn");
-  try { await navigator.clipboard.writeText(listText()); btn.textContent = "Copied"; }
-  catch (e) { btn.textContent = "Copy failed"; }
-  setTimeout(() => (btn.textContent = "Copy list"), 1400);
+  closeListMenu(false);
+  try {
+    await navigator.clipboard.writeText(listText());
+    showNotice("Copied", cardCountText());
+  } catch (e) {
+    showNotice("Couldn't copy.", "Use Export instead.");
+  }
 });
-$("downloadBtn").addEventListener("click", () => {
-  const blob = new Blob([listText() + "\n"], { type: "text/plain" });
+/* ===================== IMPORT/EXPORT START ===================== */
+// Export is a CSV with Count and Name columns. CSV is the one format phone
+// share sheets accept that also opens in spreadsheets and collection sites.
+function csvField(v) { return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function collectionCsv(list) {
+  // The leading byte-order mark makes Excel read accented names (Æther, Lim-Dûl) correctly.
+  return "﻿Count,Name\r\n" + list.map((c) => c.qty + "," + csvField(c.name)).join("\r\n") + "\r\n";
+}
+
+// Splits CSV text into rows of fields, handling quoted fields.
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = "", quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else quoted = false; }
+      else field += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") { row.push(field); field = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); rows.push(row); row = []; field = "";
+    } else field += ch;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+const NAME_COLUMNS = ["name", "card name", "card", "cardname", "card_name"];
+const COUNT_COLUMNS = ["count", "qty", "quantity", "amount", "copies"];
+const SECTION_LINES = /^(deck|main ?deck|sideboard|commander|companion|maybeboard|considering)\s*:?\s*$/i;
+
+// One line of a plain list: "4 Lightning Bolt", "4x Lightning Bolt" or just
+// "Lightning Bolt". Set codes and numbers from Arena or MTGO exports, like
+// "(M10) 146" or "[M10]", and foil marks like "*F*" are dropped.
+function parseListLine(line) {
+  let s = line.trim();
+  if (!s || s.startsWith("//") || s.startsWith("#") || SECTION_LINES.test(s)) return null;
+  let qty = 1;
+  const m = s.match(/^(\d+)\s*[xX×]?\s+(.+)$/);
+  if (m) { qty = parseInt(m[1], 10); s = m[2]; }
+  s = s.replace(/\s+\*[A-Za-z]+\*\s*$/, "")
+       .replace(/\s+\([A-Za-z0-9]{2,6}\)(\s+[A-Za-z0-9-]+)?\s*$/, "")
+       .replace(/\s+\[[A-Za-z0-9]{2,6}\]\s*$/, "");
+  return { name: s.trim(), qty };
+}
+
+// Reads a CSV with a name column (and optionally a count column) or a plain
+// list, one card per line. Duplicate names are added together.
+function parseImport(text) {
+  text = text.replace(/^﻿/, "");
+  let entries = null;
+  const firstLine = (text.split(/\r?\n/, 1)[0] || "").toLowerCase();
+  if (firstLine.includes(",")) {
+    const rows = parseCsv(text);
+    const head = rows[0].map((h) => h.trim().toLowerCase());
+    const ni = head.findIndex((h) => NAME_COLUMNS.includes(h));
+    if (ni >= 0) {
+      const ci = head.findIndex((h) => COUNT_COLUMNS.includes(h));
+      entries = rows.slice(1).map((r) => ({
+        name: (r[ni] || "").trim(),
+        qty: ci >= 0 && String(r[ci] || "").trim() !== "" ? parseInt(r[ci], 10) : 1,
+      }));
+    }
+  }
+  if (!entries) entries = text.split(/\r?\n/).map(parseListLine).filter(Boolean);
+  const merged = new Map();
+  for (const e of entries) {
+    if (!e.name || !(e.qty > 0)) continue;
+    const key = e.name.toLowerCase();
+    const prev = merged.get(key);
+    if (prev) prev.qty += e.qty; else merged.set(key, { name: e.name, qty: e.qty });
+  }
+  return [...merged.values()];
+}
+/* ===================== IMPORT/EXPORT END ===================== */
+
+function todayStamp() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function downloadFile(file) {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "scanned-cards.txt";
+  a.href = URL.createObjectURL(file);
+  a.download = file.name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// On a phone, Export opens the share sheet (Google Drive, iCloud Drive,
+// Files, email...). Elsewhere, or if sharing isn't available, it downloads.
+// The share call must come straight from the tap, with nothing awaited first.
+$("exportBtn").addEventListener("click", () => {
+  closeListMenu(false);
+  if (!cards.length) return; // the menu item is disabled when the list is empty
+  const file = new File([collectionCsv(cards)], `card-collection-${todayStamp()}.csv`, { type: "text/csv" });
+  const phone = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+  if (phone && navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file], title: file.name }).catch((e) => {
+      if (e && e.name !== "AbortError") downloadFile(file); // AbortError: the share sheet was closed
+    });
+  } else {
+    downloadFile(file);
+  }
 });
+
+// Import: the phone's file picker, which includes Google Drive and iCloud Drive.
+const importDialog = $("importDialog");
+let pendingImport = null;
+function closeImportDialog() {
+  pendingImport = null;
+  if (importDialog.close) importDialog.close(); else importDialog.removeAttribute("open");
+}
+$("importBtn").addEventListener("click", () => { closeListMenu(false); $("importFile").click(); });
+$("importFile").addEventListener("change", async () => {
+  const input = $("importFile");
+  const f = input.files[0];
+  input.value = ""; // so choosing the same file again still triggers
+  if (!f) return;
+  let list = [];
+  try { list = parseImport(await f.text()); } catch (e) { list = []; }
+
+  // Match names to the card list, so "lightning bolt" becomes "Lightning Bolt".
+  let unknown = 0;
+  if (!index) { try { await loadNames(false, true); } catch (e) {} }
+  if (index && list.length) {
+    for (const c of list) {
+      const e = index.exact.get(normName(c.name));
+      if (e) c.name = e.name; else unknown++;
+    }
+    const merged = new Map();
+    for (const c of list) {
+      const prev = merged.get(c.name);
+      if (prev) prev.qty += c.qty; else merged.set(c.name, c);
+    }
+    list = [...merged.values()];
+  }
+
+  const total = list.reduce((n, c) => n + c.qty, 0);
+  const add = $("importAdd"), replace = $("importReplace"), cancel = $("importCancel");
+  if (!list.length) {
+    $("importSummary").textContent = `No cards found in ${f.name}.`;
+    $("importNote").textContent = "Use a CSV with Count and Name columns, like the one Export makes, or a list with one card per line, such as “4 Lightning Bolt”.";
+    $("importNote").hidden = false;
+    add.hidden = replace.hidden = true;
+    cancel.textContent = "Close";
+  } else if (!cards.length && !unknown) {
+    applyImport(list, "replace"); // nothing to lose and nothing doubtful: import straight away
+    return;
+  } else {
+    $("importSummary").textContent =
+      `${total.toLocaleString()} card${total === 1 ? "" : "s"} (${list.length.toLocaleString()} different) in ${f.name}.`;
+    $("importNote").textContent = unknown
+      ? `${unknown.toLocaleString()} name${unknown === 1 ? " wasn't" : "s weren't"} recognised and will be added as written.`
+      : "";
+    $("importNote").hidden = !unknown;
+    add.hidden = replace.hidden = false;
+    cancel.textContent = "Cancel";
+  }
+  pendingImport = list;
+  if (importDialog.showModal) importDialog.showModal(); else importDialog.setAttribute("open", "");
+});
+$("importAdd").addEventListener("click", () => { const l = pendingImport; closeImportDialog(); if (l) applyImport(l, "add"); });
+$("importReplace").addEventListener("click", () => { const l = pendingImport; closeImportDialog(); if (l) applyImport(l, "replace"); });
+$("importCancel").addEventListener("click", closeImportDialog);
+importDialog.addEventListener("click", (e) => { if (e.target === importDialog) closeImportDialog(); });
+
+// Adds the imported cards to the list, or replaces it, with Undo for 10 s.
+function applyImport(list, mode) {
+  const before = cards.map((c) => ({ name: c.name, qty: c.qty }));
+  if (mode === "replace") {
+    cards = list.map((c) => ({ name: c.name, qty: c.qty }));
+  } else {
+    const fresh = [];
+    for (const c of list) {
+      const existing = cards.find((x) => x.name === c.name);
+      if (existing) existing.qty += c.qty; else fresh.push({ name: c.name, qty: c.qty });
+    }
+    cards = fresh.concat(cards);
+  }
+  present = null; recent = [];
+  saveList();
+  renderList();
+  const total = list.reduce((n, c) => n + c.qty, 0);
+  showUndoToast("Imported", `${total.toLocaleString()} card${total === 1 ? "" : "s"}`, () => {
+    cards = before;
+    saveList();
+    renderList();
+  });
+}
+
 $("clearBtn").addEventListener("click", () => { if (cards.length) $("clearConfirm").hidden = false; });
 $("clearNo").addEventListener("click", () => ($("clearConfirm").hidden = true));
 $("clearYes").addEventListener("click", () => {
@@ -1687,13 +2081,49 @@ $("tipsClose").addEventListener("click", () => (tipsDialog.close ? tipsDialog.cl
 // A click on the dimmed area outside the box closes it too.
 tipsDialog.addEventListener("click", (e) => { if (e.target === tipsDialog && tipsDialog.close) tipsDialog.close(); });
 
+/* ---------- ⋮ list menu ---------- */
+const listMenuBtn = $("listMenuBtn"), listMenu = $("listMenu");
+const menuItems = () => [...listMenu.querySelectorAll('[role="menuitem"]')].filter((b) => !b.disabled);
+function openListMenu() {
+  // Copy and Export need something in the list.
+  $("copyBtn").disabled = $("exportBtn").disabled = cards.length === 0;
+  setSettingsOpen(false);
+  listMenu.hidden = false;
+  listMenuBtn.setAttribute("aria-expanded", "true");
+  const first = menuItems()[0];
+  if (first) first.focus();
+}
+function closeListMenu(returnFocus) {
+  if (listMenu.hidden) return;
+  listMenu.hidden = true;
+  listMenuBtn.setAttribute("aria-expanded", "false");
+  if (returnFocus) listMenuBtn.focus();
+}
+listMenuBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (listMenu.hidden) openListMenu(); else closeListMenu(false);
+});
+document.addEventListener("click", (e) => {
+  if (!listMenu.hidden && !listMenu.contains(e.target)) closeListMenu(false);
+});
+// Arrow keys move through the items; Escape closes; Tab leaves the menu.
+listMenu.addEventListener("keydown", (e) => {
+  const items = menuItems(), i = items.indexOf(document.activeElement);
+  if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+  else if (e.key === "Home") { e.preventDefault(); items[0].focus(); }
+  else if (e.key === "End") { e.preventDefault(); items[items.length - 1].focus(); }
+  else if (e.key === "Escape") { e.preventDefault(); closeListMenu(true); }
+  else if (e.key === "Tab") closeListMenu(false);
+});
+
 /* ---------- Settings ---------- */
 const settingsBtn = $("settingsBtn"), settingsPanel = $("settingsPanel");
 function setSettingsOpen(open) {
   settingsPanel.hidden = !open;
   settingsBtn.setAttribute("aria-expanded", String(open));
 }
-settingsBtn.addEventListener("click", (e) => { e.stopPropagation(); setSettingsOpen(settingsPanel.hidden); });
+settingsBtn.addEventListener("click", (e) => { e.stopPropagation(); closeListMenu(false); setSettingsOpen(settingsPanel.hidden); });
 document.addEventListener("click", (e) => {
   if (!settingsPanel.hidden && !settingsPanel.contains(e.target)) setSettingsOpen(false);
 });
