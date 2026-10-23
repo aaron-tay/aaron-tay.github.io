@@ -540,6 +540,27 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
 .cell { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 .cset { font-size: .76rem; line-height: 1.2; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cset:empty { display: none; }
+.cset[data-pickable="pick"] { color: var(--accent); cursor: pointer; }
+.cset[data-pickable="pick"]:hover { text-decoration: underline; text-decoration-color: var(--accent); }
+.cset[data-pickable="change"] { cursor: pointer; }
+.cset[data-pickable="change"]:hover { color: var(--accent); text-decoration: underline; text-decoration-color: var(--accent); }
+.printing-search { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--ink); font-size: .95rem; }
+.printing-search:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+#printingDialog { height: min(82vh, 580px); height: min(82dvh, 580px); min-height: 320px; }
+#printingDialog .modal-inner { height: 100%; box-sizing: border-box; }
+.printing-list { list-style: none; flex: 1; min-height: 0; margin: 0 -18px -18px; padding: 0; overflow-y: auto; border-top: 1px solid var(--line); }
+.printing-list li { display: flex; align-items: flex-start; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.printing-list li:last-child { border-bottom: 0; }
+.printing-list li:hover { background: var(--field); }
+.printing-list li.pl-current { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.pl-main { flex: 1; min-width: 0; }
+.pl-set { font-size: .95rem; font-weight: 600; }
+.pl-detail { font-size: .8rem; color: var(--muted); margin-top: 2px; }
+.printing-sort-bar { display: flex; gap: 4px; }
+.pl-sort-btn { padding: 3px 9px; font-size: .8rem; border-radius: 4px; }
+.pl-sort-btn.pl-sort-active { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: var(--accent); color: var(--accent); }
+.pl-img-btn { padding: 4px 7px; font-size: .82rem; flex-shrink: 0; margin-top: 2px; min-width: 26px; text-align: center; }
+.pl-preview { max-width: 220px; border-radius: 6px; margin-top: 8px; display: block; }
 .cname { font-family: var(--font-name); font-weight: 500; font-size: 1.08rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); text-decoration: none; }
 .cname:hover { text-decoration: underline; text-decoration-color: var(--accent); }
 .rowbtns { display: flex; gap: 4px; }
@@ -651,12 +672,17 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
         </div>
         <div class="settings-section">
           <div class="settings-title">Card printings</div>
-          <p id="printingsInfo">Not downloaded. Only needed to export for ManaBox, which wants a set for every card.</p>
+          <p id="printingsInfo">Not downloaded. Used to identify the set and printing of each scanned card, and needed for ManaBox export.</p>
           <div class="progress" id="printingsProgress" hidden><span></span></div>
           <div class="settings-actions">
-            <button type="button" id="refreshPrintings">Download from Scryfall</button>
+            <button type="button" id="refreshPrintings">Download</button>
+            <select id="fpVersionSelect" title="Fingerprint DB version">
+              <option value="v2">v2 (5% trim)</option>
+              <option value="v3">v3 (10% trim)</option>
+              <option value="v4">v4 (12% trim)</option>
+            </select>
           </div>
-          <p>Scryfall's usual printing of each card, about 25 MB. Kept in this browser and refreshed weekly.</p>
+          <p>Fingerprint data for all ~100 k printings (~15 MB). Kept in this browser and refreshed weekly.</p>
         </div>
       </div>
     </div>
@@ -801,16 +827,32 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
   </div>
 </dialog>
 
-<!-- Background worker for card printings. It streams Scryfall's Oracle Cards
-     file (about 25 MB compressed, 150 MB unpacked) one card per line, keeps
-     a few fields per card, and saves the small result in IndexedDB. The
-     whole file is never held in memory, and the scanner keeps running. -->
-<script type="text/js-worker" id="printingsWorkerSrc">
-const API = "https://api.scryfall.com/bulk-data";
-const TYPICAL_SIZE = 160e6; // unpacked bytes, for progress when Scryfall doesn't say
-// Not cards you can own: these never appear in the card-name list either.
-const SKIP_LAYOUTS = new Set(["token", "double_faced_token", "emblem", "art_series"]);
-const STALL_MS = 60000; // give up if nothing arrives for a minute
+<dialog class="modal" id="printingDialog" aria-labelledby="printingDialogTitle">
+  <div class="modal-inner">
+    <div class="modal-head">
+      <h2 id="printingDialogTitle">Choose printing</h2>
+      <button type="button" id="printingDialogClose">Close</button>
+    </div>
+    <p class="muted" id="printingDialogName"></p>
+    <input type="search" id="printingSearch" class="printing-search" placeholder="Filter sets…" autocomplete="off" spellcheck="false" aria-label="Filter printings">
+    <div id="printingSortBar" class="printing-sort-bar" hidden>
+      <button type="button" id="printingSortDate" class="pl-sort-btn">Date</button>
+      <button type="button" id="printingSortFp" class="pl-sort-btn">Match</button>
+    </div>
+    <ul id="printingDialogList" class="printing-list" role="listbox" aria-labelledby="printingDialogTitle"></ul>
+  </div>
+</dialog>
+
+<!-- Background worker for card fingerprint data. Downloads a single
+     bundle.gz: [4-byte record count] + [fp binary] + [NDJSON text],
+     gzipped. Saves fp_rows and fp_binary to IndexedDB. -->
+
+<script type="text/js-worker" id="fpWorkerSrc">
+const STALL_MS = 60000;
+const RECORD_BYTES = 96;
+const BUNDLE_VERSION = "v4";
+// Decompressed bundle is ~41 MB; used only when Content-Length is absent.
+const ESTIMATED_BYTES = 42e6;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -823,115 +865,356 @@ function openDb() {
 
 self.onmessage = async (e) => {
   if (!e.data || e.data.cmd !== "refresh") return;
+  const base = e.data.base;
+  if (!base) { self.postMessage({ type: "error", message: "missing base URL" }); return; }
   const ctl = new AbortController();
   let stall = 0;
   const kick = () => { clearTimeout(stall); stall = setTimeout(() => ctl.abort(), STALL_MS); };
   try {
     kick();
-    // Where today's file is: asked for directly, then via the full list, and
-    // failing both, Scryfall's format=file address, which redirects to the file.
-    const said = [];
-    const getJson = async (url) => {
-      const r = await fetch(url, { signal: ctl.signal, headers: { Accept: "application/json" } });
-      const text = await r.text();
-      let j = null;
-      try { j = JSON.parse(text); } catch (e) {}
-      if (!r.ok || !j) said.push(r.status + " " + (j && (j.details || j.object) || text.slice(0, 80).replace(/\s+/g, " ")));
-      return r.ok ? j : null;
-    };
-    let meta = await getJson(API + "/oracle-cards").catch((e) => { said.push(e.message); return null; });
-    if (!meta || !meta.download_uri) {
-      if (meta) said.push("reply had no file address (" + Object.keys(meta).slice(0, 6).join(", ") + ")");
-      const list = await getJson(API).catch((e) => { said.push(e.message); return null; });
-      const found = list && Array.isArray(list.data) && list.data.find((b) => b.type === "oracle_cards" && b.download_uri);
-      meta = found || { download_uri: API + "/oracle-cards?format=file" };
-    }
-    console.info("Printings file:", meta.download_uri, said.length ? "(after: " + said.join("; ") + ")" : "");
+    const fpVersion = (e.data && e.data.fpVersion) || BUNDLE_VERSION;
+    const bundleUrl = new URL("fp/" + fpVersion + "/bundle.gz", base).href;
+    const res = await fetch(bundleUrl, { signal: ctl.signal });
+    if (!res.ok || !res.body) throw new Error(res.status + " fetching bundle");
 
-    const res = await fetch(meta.download_uri, { signal: ctl.signal });
-    if (!res.ok || !res.body) {
-      said.push("file: " + res.status);
-      throw new Error("Scryfall didn't send the file (" + said.join("; ") + ")");
-    }
-    const total = meta.size || TYPICAL_SIZE; // unpacked size in bytes
-
-    // The browser unpacks the file itself when Scryfall labels it as
-    // compressed. If it arrives still gzipped (it starts with bytes 1F 8B),
-    // it's unpacked here instead of being read as text.
+    // GitHub Pages serves .gz files as raw bytes (no Content-Encoding: gzip),
+    // so we detect and decompress manually. If the server did decompress it
+    // transparently the magic bytes won't match and we use the stream as-is.
     const raw = res.body.getReader();
     const first = await raw.read();
-    const gzipped = !!first.value && first.value[0] === 0x1f && first.value[1] === 0x8b;
+    kick();
+    const gzipped = first.value && first.value[0] === 0x1f && first.value[1] === 0x8b;
     let body = new ReadableStream({
       start(c) { if (first.value) c.enqueue(first.value); if (first.done) c.close(); },
       async pull(c) { const { value, done } = await raw.read(); if (done) c.close(); else c.enqueue(value); },
-      cancel(reason) { raw.cancel(reason); },
+      cancel(r) { raw.cancel(r); },
     });
     if (gzipped) body = body.pipeThrough(new DecompressionStream("gzip"));
-    const reader = body.pipeThrough(new TextDecoderStream()).getReader();
 
-    // JSON Lines: every line is one card, {...}, read with JSON.parse.
-    const rows = [];
-    let seen = 0, lastPost = 0, lastYield = performance.now(), lineNo = 0;
-    const take = (line) => {
-      lineNo++;
-      line = line.trim();
-      if (!line) return;
-      let c;
-      try { c = JSON.parse(line); }
-      catch (e) { throw new Error(`line ${lineNo} isn't a card (${gzipped ? "unpacked here" : "as sent"}): ${JSON.stringify(line.slice(0, 40))}`); }
-      if (!c || !c.name || SKIP_LAYOUTS.has(c.layout)) return;
-      rows.push([c.name, c.set || "", c.set_name || "", c.collector_number || "", c.id || "", c.rarity || ""]);
-    };
-    // Run on the page itself (no worker), it reads in short bursts so the
-    // page can draw in between. In a worker it just keeps going.
-    const onPage = typeof WorkerGlobalScope === "undefined";
-
-    let buf = "";
+    // Collect all decompressed bytes, reporting progress.
+    const reader = body.getReader();
+    const chunks = [];
+    let received = 0, lastPost = 0;
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
       kick();
-      seen += value.length;
-      buf += value;
-      let start = 0, nl;
-      while ((nl = buf.indexOf("\n", start)) >= 0) {
-        take(buf.slice(start, nl));
-        start = nl + 1;
-        if (onPage && performance.now() - lastYield > 10) {
-          buf = buf.slice(start); start = 0;
-          await new Promise((r) => setTimeout(r, 0));
-          lastYield = performance.now();
-        }
-      }
-      buf = buf.slice(start);
+      chunks.push(value);
+      received += value.length;
       const now = Date.now();
       if (now - lastPost > 200) {
         lastPost = now;
-        self.postMessage({ type: "progress", fraction: total ? Math.min(0.99, seen / total) : 0, cards: rows.length });
+        self.postMessage({ type: "progress", fraction: Math.min(0.9, received / ESTIMATED_BYTES), cards: 0 });
       }
     }
-    take(buf);
     clearTimeout(stall);
-    if (rows.length < 1000) throw new Error("the file from Scryfall looks incomplete (" + rows.length + " cards)");
 
-    // Saved in one step, so the previous copy stays until this one is complete.
-    const record = { t: Date.now(), updated: meta.updated_at || "", rows };
+    // Assemble one contiguous buffer.
+    const buf = new Uint8Array(received);
+    let off = 0;
+    for (const c of chunks) { buf.set(c, off); off += c.length; }
+
+    // Parse: [4-byte uint32 BE: N] [N×96 bytes: fp] [N NDJSON lines]
+    if (buf.length < 4) throw new Error("bundle too short");
+    const N = (buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3]) >>> 0;
+    const fpEnd = 4 + N * RECORD_BYTES;
+    if (buf.length < fpEnd) throw new Error("bundle truncated before fp data");
+    const fpBuf = buf.buffer.slice(4, fpEnd);
+    const ndjson = new TextDecoder().decode(buf.subarray(fpEnd));
+
+    self.postMessage({ type: "progress", fraction: 0.95, cards: 0 });
+
+    const rows = [];
+    for (const line of ndjson.split("\n")) {
+      const t = line.trim(); if (!t) continue;
+      const c = JSON.parse(t);
+      rows.push([c.name, c.set, c.set_name, c.collector_number, c.id,
+                 c.rarity, c.border_color || "", c.frame || "", c.released_at || ""]);
+    }
+    if (rows.length !== N) throw new Error("record count mismatch: header " + N + " vs parsed " + rows.length);
+
+    const t = Date.now();
     const db = await openDb();
     await new Promise((resolve, reject) => {
       const tx = db.transaction("data", "readwrite");
-      tx.objectStore("data").put(record, "printings");
+      const store = tx.objectStore("data");
+      store.put({ t, rows }, "fp_rows");
+      store.put(fpBuf, "fp_binary");
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error("couldn't save"));
     });
     db.close();
-    self.postMessage({ type: "done", t: record.t, count: rows.length, updated: record.updated });
+    self.postMessage({ type: "done", t, count: rows.length, version: fpVersion });
   } catch (err) {
     clearTimeout(stall);
     const msg = err && err.name === "AbortError" ? "the download stalled" : (err && err.message) || String(err);
     self.postMessage({ type: "error", message: msg });
   }
 };
+</script>
+<script>
+/* ===================== FINGERPRINT START ===================== */
+// InstantSorcery card fingerprint, version 1. Shared source lives in
+// tools/fingerprint.js; the copy inlined into instantsorcery.html is kept
+// identical by `npm run inline-check`.
+//
+// Design: input is a straightened whole card at any size (RGB bytes), from
+// a camera frame or a Scryfall JPG. We trim a few per cent off every edge
+// (sleeves/background), area-average resize to 128x178 ("normalised card"),
+// then derive two signatures: a 256-bit DCT perceptual hash of a 32x32
+// greyscale, and a 4x4 colour grid. Distance = Hamming on the hash plus a
+// weighted L1 on the colour grid. Deterministic given the same RGB pixels.
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === "object" && module && module.exports) module.exports = api;
+  else (root || globalThis).InstantSorceryFP = api;
+})(typeof self !== "undefined" ? self : (typeof globalThis !== "undefined" ? globalThis : this), function () {
+  "use strict";
+
+  const VERSION = "v4";
+  const NORM_W = 128;       // normalised card width (close to 63:88)
+  const NORM_H = 178;       // normalised card height
+  const TRIM_PCT = 0.12;    // fraction trimmed off each edge before anything else
+  const PHASH_PX = 32;      // greyscale grid feeding the DCT
+  const PHASH_KEEP = 16;    // top-left 16x16 block kept from the 32x32 DCT -> 256 bits
+  const PHASH_BITS = PHASH_KEEP * PHASH_KEEP;
+  const PHASH_BYTES = PHASH_BITS >> 3;        // 32
+  const COLOUR_COLS = 4;
+  const COLOUR_ROWS = 4;
+  const COLOUR_BYTES = COLOUR_COLS * COLOUR_ROWS * 3; // 48
+  const RECORD_BYTES = 16 + PHASH_BYTES + COLOUR_BYTES; // 96 (uuid + phash + colour)
+
+  // Precompute 32-point DCT-II cosines once. basis[u*N + x] = cos((2x+1)*u*pi/(2N)).
+  const _dctBasis = (() => {
+    const N = PHASH_PX;
+    const b = new Float32Array(N * N);
+    for (let u = 0; u < N; u++) {
+      for (let x = 0; x < N; x++) {
+        b[u * N + x] = Math.cos(((2 * x + 1) * u * Math.PI) / (2 * N));
+      }
+    }
+    return b;
+  })();
+
+  // Area-average resize of an RGB image. Deterministic: every destination
+  // pixel is the weighted mean of the source pixels it covers.
+  function resizeArea(src, dw, dh) {
+    const sw = src.w | 0, sh = src.h | 0, sd = src.data;
+    const out = new Uint8Array(dw * dh * 3);
+    const xScale = sw / dw, yScale = sh / dh;
+    for (let dy = 0; dy < dh; dy++) {
+      const y0 = dy * yScale, y1 = (dy + 1) * yScale;
+      const iy0 = Math.floor(y0), iy1 = Math.min(sh, Math.ceil(y1));
+      for (let dx = 0; dx < dw; dx++) {
+        const x0 = dx * xScale, x1 = (dx + 1) * xScale;
+        const ix0 = Math.floor(x0), ix1 = Math.min(sw, Math.ceil(x1));
+        let sr = 0, sg = 0, sb = 0, sw2 = 0;
+        for (let y = iy0; y < iy1; y++) {
+          const yw = Math.min(y1, y + 1) - Math.max(y0, y);
+          if (yw <= 0) continue;
+          for (let x = ix0; x < ix1; x++) {
+            const xw = Math.min(x1, x + 1) - Math.max(x0, x);
+            if (xw <= 0) continue;
+            const w = yw * xw;
+            const i = (y * sw + x) * 3;
+            sr += sd[i] * w; sg += sd[i + 1] * w; sb += sd[i + 2] * w;
+            sw2 += w;
+          }
+        }
+        const o = (dy * dw + dx) * 3;
+        out[o]     = Math.round(sr / sw2);
+        out[o + 1] = Math.round(sg / sw2);
+        out[o + 2] = Math.round(sb / sw2);
+      }
+    }
+    return { w: dw, h: dh, data: out };
+  }
+
+  // Trim a given fraction off every edge. 5% removes typical sleeve/background rim.
+  function trimEdges(src, pct) {
+    const w = src.w | 0, h = src.h | 0, d = src.data;
+    const dx = Math.round(w * pct), dy = Math.round(h * pct);
+    const nw = w - 2 * dx, nh = h - 2 * dy;
+    const out = new Uint8Array(nw * nh * 3);
+    for (let y = 0; y < nh; y++) {
+      const srcOff = ((y + dy) * w + dx) * 3;
+      out.set(d.subarray(srcOff, srcOff + nw * 3), y * nw * 3);
+    }
+    return { w: nw, h: nh, data: out };
+  }
+
+  // ITU-R BT.709 greyscale.
+  function toGrey(src) {
+    const w = src.w | 0, h = src.h | 0, d = src.data;
+    const g = new Uint8Array(w * h);
+    for (let i = 0, j = 0; j < g.length; i += 3, j++) {
+      g[j] = Math.round(0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]);
+    }
+    return { w, h, data: g };
+  }
+
+  // 2D DCT-II of a PHASH_PX x PHASH_PX greyscale. Separable: rows then columns.
+  function dct2(grey) {
+    const N = PHASH_PX;
+    const tmp = new Float32Array(N * N);
+    for (let y = 0; y < N; y++) {
+      for (let u = 0; u < N; u++) {
+        let s = 0;
+        const row = y * N;
+        const base = u * N;
+        for (let x = 0; x < N; x++) s += _dctBasis[base + x] * grey[row + x];
+        tmp[row + u] = s;
+      }
+    }
+    const out = new Float32Array(N * N);
+    for (let u = 0; u < N; u++) {
+      for (let v = 0; v < N; v++) {
+        let s = 0;
+        const base = v * N;
+        for (let y = 0; y < N; y++) s += _dctBasis[base + y] * tmp[y * N + u];
+        out[v * N + u] = s;
+      }
+    }
+    return out;
+  }
+
+  // 256-bit pHash of a 32x32 greyscale. We keep the top-left 16x16 DCT block.
+  // Median is computed excluding DC (which is huge) for a balanced bit split.
+  function phash256(grey32) {
+    const d = dct2(grey32);
+    const K = PHASH_KEEP, N = PHASH_PX;
+    const vals = new Float64Array(K * K);
+    for (let v = 0; v < K; v++) {
+      for (let u = 0; u < K; u++) vals[v * K + u] = d[v * N + u];
+    }
+    const nonDc = Array.from(vals.subarray(1)).sort((a, b) => a - b);
+    const med = nonDc[nonDc.length >> 1];
+    const hash = new Uint8Array(PHASH_BYTES);
+    for (let i = 0; i < vals.length; i++) {
+      if (vals[i] >= med) hash[i >> 3] |= 1 << (i & 7);
+    }
+    return hash;
+  }
+
+  // 4x4 grid of mean RGB. Robust to pose; distinguishes borders and overall ink.
+  function colourGrid(rgb) {
+    const w = rgb.w | 0, h = rgb.h | 0, d = rgb.data;
+    const out = new Uint8Array(COLOUR_BYTES);
+    for (let gy = 0; gy < COLOUR_ROWS; gy++) {
+      const y0 = Math.floor((gy * h) / COLOUR_ROWS);
+      const y1 = Math.floor(((gy + 1) * h) / COLOUR_ROWS);
+      for (let gx = 0; gx < COLOUR_COLS; gx++) {
+        const x0 = Math.floor((gx * w) / COLOUR_COLS);
+        const x1 = Math.floor(((gx + 1) * w) / COLOUR_COLS);
+        let sr = 0, sg = 0, sb = 0, n = 0;
+        for (let y = y0; y < y1; y++) {
+          for (let x = x0; x < x1; x++) {
+            const i = (y * w + x) * 3;
+            sr += d[i]; sg += d[i + 1]; sb += d[i + 2]; n++;
+          }
+        }
+        const o = (gy * COLOUR_COLS + gx) * 3;
+        out[o]     = Math.round(sr / n);
+        out[o + 1] = Math.round(sg / n);
+        out[o + 2] = Math.round(sb / n);
+      }
+    }
+    return out;
+  }
+
+  // Strip alpha, giving a tightly-packed RGB buffer. Canvas and ImageBitmap
+  // produce RGBA; sharp produces RGB directly, so the caller usually knows.
+  function fromRgba(width, height, rgba) {
+    const out = new Uint8Array(width * height * 3);
+    for (let i = 0, j = 0; j < rgba.length; i += 3, j += 4) {
+      out[i] = rgba[j]; out[i + 1] = rgba[j + 1]; out[i + 2] = rgba[j + 2];
+    }
+    return out;
+  }
+
+  // The public entry point. Input: {width, height, rgb: Uint8Array} with
+  // tightly-packed RGB bytes of a whole, straightened card.
+  function fingerprint(input, opts) {
+    const o = opts || {};
+    const trimPct = o.trimPct != null ? o.trimPct : TRIM_PCT;
+    const rgb = { w: input.width | 0, h: input.height | 0, data: input.rgb };
+    const trimmed = trimPct > 0 ? trimEdges(rgb, trimPct) : rgb;
+    const norm = resizeArea(trimmed, NORM_W, NORM_H);
+    const grey32 = toGrey(resizeArea(norm, PHASH_PX, PHASH_PX));
+    const phash = phash256(grey32.data);
+    const colour = colourGrid(norm);
+    return { phash, colour };
+  }
+
+  // Precomputed popcount table for the Hamming distance between two 32-byte hashes.
+  const _popcount = (() => {
+    const t = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) {
+      let n = i, c = 0;
+      while (n) { c += n & 1; n >>= 1; }
+      t[i] = c;
+    }
+    return t;
+  })();
+
+  function hamming(a, b) {
+    let d = 0;
+    for (let i = 0; i < a.length; i++) d += _popcount[a[i] ^ b[i]];
+    return d;
+  }
+
+  function colourDist(a, b) {
+    let s = 0;
+    for (let i = 0; i < a.length; i++) {
+      const x = a[i] - b[i];
+      s += x < 0 ? -x : x;
+    }
+    return s;
+  }
+
+  // Hamming is in [0, 256]; colour L1 is in [0, 48*255 = 12240]. The default
+  // weight scales colour so its contribution matches a 10-20 bit hash change
+  // for a typical different-art card. Eval tunes this.
+  function distance(fpA, fpB, opts) {
+    const w = (opts && opts.colourWeight != null) ? opts.colourWeight : 0.012;
+    return hamming(fpA.phash, fpB.phash) + w * colourDist(fpA.colour, fpB.colour);
+  }
+
+  // Binary record: 16-byte UUID + 32-byte phash + 48-byte colour = 96 bytes.
+  function encodeRecord(idHex, phash, colour) {
+    if (phash.length !== PHASH_BYTES) throw new Error("phash length " + phash.length);
+    if (colour.length !== COLOUR_BYTES) throw new Error("colour length " + colour.length);
+    const buf = new Uint8Array(RECORD_BYTES);
+    const hex = idHex.replace(/-/g, "");
+    if (hex.length !== 32) throw new Error("not a uuid: " + idHex);
+    for (let i = 0; i < 16; i++) buf[i] = parseInt(hex.substr(i * 2, 2), 16);
+    buf.set(phash, 16);
+    buf.set(colour, 16 + PHASH_BYTES);
+    return buf;
+  }
+
+  function decodeRecord(buf, off) {
+    off = off | 0;
+    const hex = Array.from(buf.subarray(off, off + 16), (b) => b.toString(16).padStart(2, "0")).join("");
+    const id = hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) + "-" + hex.slice(16, 20) + "-" + hex.slice(20);
+    return {
+      id,
+      phash: buf.subarray(off + 16, off + 16 + PHASH_BYTES),
+      colour: buf.subarray(off + 16 + PHASH_BYTES, off + RECORD_BYTES),
+    };
+  }
+
+  return {
+    VERSION, NORM_W, NORM_H, TRIM_PCT, PHASH_PX, PHASH_KEEP, PHASH_BITS, PHASH_BYTES,
+    COLOUR_COLS, COLOUR_ROWS, COLOUR_BYTES, RECORD_BYTES,
+    resizeArea, trimEdges, toGrey, dct2, phash256, colourGrid,
+    fromRgba, fingerprint, hamming, colourDist, distance,
+    encodeRecord, decodeRecord,
+  };
+});
+/* ===================== FINGERPRINT END ===================== */
+
 </script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script>
@@ -2095,6 +2378,9 @@ function readTimeout() {
 function withTimeout(promise, ms) {
   let timer;
   const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("read timed out")), ms); });
+  // Prevent an unhandled rejection if the timeout wins and the worker is
+  // terminated before the recognize promise resolves or rejects.
+  promise.catch(() => {});
   return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
 }
 // Shuts down a stuck text reader (this stops it even mid-read) and starts a
@@ -2111,6 +2397,18 @@ function restartReader() {
   })().finally(() => { readerRestart = null; });
   return readerRestart;
 }
+// Tesseract.js fires an unhandled rejection from its internal job scheduler
+// when the worker is terminated mid-job (the rejection bypasses our try/catch
+// because it comes from an independent Promise inside Tesseract's queue, not
+// the one returned by recognize()). Catch it here, suppress the console noise,
+// and restart the reader so scanning continues.
+window.addEventListener("unhandledrejection", (e) => {
+  const msg = e.reason && e.reason.message;
+  if (msg && /postMessage/.test(msg)) {
+    e.preventDefault();
+    if (running) restartReader();
+  }
+});
 function startWatchdog() {
   clearInterval(watchdogTimer);
   lastTickAt = performance.now();
@@ -2133,8 +2431,8 @@ async function tick(id) {
   try {
     wait = await scanOnce(id);
   } catch (err) {
-    console.error("Scan failed:", err);
-    if (err && err.message === "read timed out") await restartReader();
+    if (err && err.message === "read timed out") { await restartReader(); }
+    else console.error("Scan failed:", err);
   }
   lastTickAt = performance.now();
   if (wait !== null && running && id === loopId) setTimeout(() => tick(id), wait);
@@ -2509,8 +2807,16 @@ function stop() {
 
 /* ---------- Scanned list ---------- */
 const LIST_KEY = "cns.list.v1";
-let cards = []; // [{name, qty}], most recent first
-try { cards = JSON.parse(store.get(LIST_KEY) || "[]") || []; } catch (e) { cards = []; }
+let cards = []; // [{name, printing_id, qty, added_at}], most recent first
+try {
+  const raw = JSON.parse(store.get(LIST_KEY) || "[]") || [];
+  let migrated = false;
+  cards = raw.map((c) => {
+    if (!("printing_id" in c)) { migrated = true; return { name: c.name, printing_id: null, qty: c.qty, added_at: Date.now() }; }
+    return c;
+  });
+  if (migrated) store.set(LIST_KEY, JSON.stringify(cards));
+} catch (e) { cards = []; }
 
 // Saves the list in this browser. The first save also asks the browser to
 // treat the data as persistent, so it isn't cleared when space runs low.
@@ -2524,10 +2830,106 @@ function saveList() {
 }
 function scryfallUrl(name) { return "https://scryfall.com/search?q=" + encodeURIComponent('!"' + name + '"'); }
 
+// Small offscreen canvas for reading the card frame into fingerprint.
+const FP_W = 160, FP_H = 224;
+const fpCv = document.createElement("canvas"); fpCv.width = FP_W; fpCv.height = FP_H;
+const fpCx = fpCv.getContext("2d", { willReadFrequently: true });
+// Art-box crop variants: slight vertical offsets to compensate for the live
+// crop not perfectly matching Scryfall's tight art_crop boundary.
+// Each entry is [top_frac, height_frac] relative to CH.
+const ART_SX = Math.round(CW * 0.03), ART_SW = Math.round(CW * 0.94);
+const FP_CROP_VARIANTS = [[0.06, 0.47], [0.08, 0.48], [0.10, 0.49], [0.08, 0.51]];
+
+// Returns one fingerprint per crop variant from the current cardCv frame.
+function computeLiveFps() {
+  const fps = [];
+  for (const [syF, shF] of FP_CROP_VARIANTS) {
+    fpCx.drawImage(cardCv, ART_SX, Math.round(CH * syF), ART_SW, Math.round(CH * shF), 0, 0, FP_W, FP_H);
+    const d = fpCx.getImageData(0, 0, FP_W, FP_H);
+    fps.push(InstantSorceryFP.fingerprint({ width: FP_W, height: FP_H, rgb: InstantSorceryFP.fromRgba(FP_W, FP_H, d.data) }, { trimPct: FP_ACTIVE_TRIM }));
+  }
+  return fps;
+}
+
+// Best distance across all crop variants for one candidate record.
+function bestVariantScore(fps, rec) {
+  let best = Infinity;
+  for (const fp of fps) best = Math.min(best, InstantSorceryFP.distance(fp, rec));
+  return best;
+}
+
+// Returns the best printing_id for the current camera frame, or null if
+// undecided. Runs synchronously in ~2 ms when fp data is in RAM.
+// All decisions are logged to the console at debug level.
+let _fpWarnedNoData = false;
+function tryFingerprintId(name) {
+  if (!printings.fp || !printings.allByName || !window.InstantSorceryFP) {
+    if (!_fpWarnedNoData) {
+      _fpWarnedNoData = true;
+      console.debug("[fp] data not loaded — cards will scan without set resolution. Download fingerprint data in Settings.");
+    }
+    return null;
+  }
+  _fpWarnedNoData = false;
+  const indices = printings.allByName.get(normName(name));
+  if (!indices || indices.length === 0) {
+    console.debug("[fp]", name, "— no printing candidates in index");
+    return null;
+  }
+  if (indices.length === 1) {
+    const r = printings.rows[indices[0]];
+    console.debug("[fp]", name, "— single printing, auto-resolved →", r[2], "#" + r[3]);
+    return r[4];
+  }
+  let liveFps;
+  try {
+    const t0 = performance.now();
+    liveFps = computeLiveFps();
+    console.debug("[fp]", name, "—", liveFps.length, "crop variants in", (performance.now() - t0).toFixed(1), "ms");
+  } catch (ex) {
+    console.debug("[fp]", name, "— fingerprint error:", ex.message);
+    return null;
+  }
+  const RB = InstantSorceryFP.RECORD_BYTES;
+  const t1 = performance.now();
+  const scored = indices.map((ri, k) => {
+    const rec = InstantSorceryFP.decodeRecord(printings.fp, ri * RB);
+    return { k, ri, score: bestVariantScore(liveFps, rec) };
+  });
+  scored.sort((a, b) => a.score - b.score);
+  const ms = (performance.now() - t1).toFixed(1);
+  const bestScore = scored[0].score;
+  const secondScore = scored[1] ? scored[1].score : Infinity;
+  const margin = secondScore - bestScore;
+  const winner = printings.rows[indices[scored[0].k]];
+  const others = scored.slice(1, 4).map(s => {
+    const r = printings.rows[s.ri];
+    return `${r[1]} #${r[3]} ${s.score.toFixed(1)}`;
+  }).join(", ");
+  const confident = bestScore < 80 && margin > 20;
+  console.debug(`[fp] ${name} → ${winner[2]} #${winner[3]} (score ${bestScore.toFixed(1)}, margin ${margin.toFixed(1)}, ${indices.length} candidates, ${ms} ms, ${confident ? "confident" : "skipped"})` + (others ? `\n     runners-up: ${others}` : ""));
+  return confident ? winner[4] : null;
+}
+
 function addCard(name) {
-  const i = cards.findIndex((c) => c.name === name);
-  if (i >= 0) { const c = cards.splice(i, 1)[0]; c.qty++; cards.unshift(c); }
-  else cards.unshift({ name, qty: 1 });
+  const printingId = tryFingerprintId(name);
+  if (printingId !== null) {
+    const iExact = cards.findIndex((c) => c.name === name && c.printing_id === printingId);
+    if (iExact >= 0) {
+      const c = cards.splice(iExact, 1)[0]; c.qty++; cards.unshift(c);
+    } else {
+      const iNull = cards.findIndex((c) => c.name === name && c.printing_id === null);
+      if (iNull >= 0) {
+        const c = cards.splice(iNull, 1)[0]; c.qty++; c.printing_id = printingId; cards.unshift(c);
+      } else {
+        cards.unshift({ name, printing_id: printingId, qty: 1, added_at: Date.now() });
+      }
+    }
+  } else {
+    const i = cards.findIndex((c) => c.name === name);
+    if (i >= 0) { const c = cards.splice(i, 1)[0]; c.qty++; cards.unshift(c); }
+    else cards.unshift({ name, printing_id: null, qty: 1, added_at: Date.now() });
+  }
   saveList();
   renderList(name);
   try { onCardScanned(name); } catch (e) { console.error(e); }
@@ -2537,12 +2939,23 @@ function addCard(name) {
    Only the rows in view (plus a few either side) exist on the page. As the
    list scrolls, the same row elements are given different cards, so drawing
    costs the same for 50 cards or 10,000. */
-const PRINTINGS_META_KEY = "cns.printings.meta"; // {t, count}: small, read on page load
+// Fingerprint version config. To add a new version: build the DB, add an
+// entry here, and update BUNDLE_VERSION in the worker above.
+const FP_VERSIONS = { "v2": { trimPct: 0.05 }, "v3": { trimPct: 0.10 }, "v4": { trimPct: 0.12 } };
+const FP_ACTIVE_VER  = (new URLSearchParams(location.search).get("fp") in FP_VERSIONS)
+  ? new URLSearchParams(location.search).get("fp") : "v4";
+const FP_ACTIVE_TRIM = FP_VERSIONS[FP_ACTIVE_VER].trimPct;
+const FP_META_KEY = "cns.fp.meta." + FP_ACTIVE_VER; // version-scoped so IDB slots don't collide
 const printings = {
-  meta: (() => { try { return JSON.parse(store.get(PRINTINGS_META_KEY) || "null"); } catch (e) { return null; } })(),
-  byName: null,   // Map of normalised name -> row, built when first needed
-  loading: null,  // promise while reading the saved copy
-  job: null,      // promise while downloading
+  meta: (() => { try { return JSON.parse(store.get(FP_META_KEY) || "null"); } catch (e) { return null; } })(),
+  byName: null,    // Map name -> first row [name,set,set_name,col#,id,rarity,border,frame,date]
+  allByName: null, // Map name -> array of row indices (all printings)
+  rowById: null,   // Map id -> row index
+  bySetCol: null,  // Map "set:col#" -> id
+  rows: null,      // the flat rows array
+  fp: null,        // Uint8Array of concatenated binary fingerprint records
+  loading: null,
+  job: null,
   fraction: 0,
   error: "",
 };
@@ -2605,12 +3018,37 @@ function drawRows() {
     row.setAttribute("aria-posinset", i + 1);
     row.setAttribute("aria-setsize", view.length);
     row.children[0].textContent = c.qty + "×";
-    // The set line uses Scryfall's usual printing, once printings are saved.
-    const p = printings.byName ? printingOf(c.name) : null;
-    const setName = p ? p[2] : "";
-    if (row.dataset.set !== setName) { row.dataset.set = setName; row.children[1].children[1].textContent = setName; }
-    if (row.dataset.name !== c.name) {
+    // Set line: show resolved printing, "pick a set →" when unresolved, or
+    // default set name when fingerprint data isn't loaded yet.
+    let setLine = "", setPickable = "";
+    if (c.printing_id && printings.rowById) {
+      const ri = printings.rowById.get(c.printing_id);
+      if (ri !== undefined && printings.rows) {
+        const r = printings.rows[ri]; setLine = r[1].toUpperCase() + " · " + r[2] + " #" + r[3];
+        if (printings.allByName) {
+          const idxs = printings.allByName.get(normFor(c.name));
+          if (idxs && idxs.length > 1) setPickable = "change";
+        }
+      }
+    } else if (printings.allByName) {
+      const idxs = printings.allByName.get(normFor(c.name));
+      if (idxs) {
+        if (idxs.length === 1 && printings.rows) { const r0 = printings.rows[idxs[0]]; setLine = r0[1].toUpperCase() + " · " + r0[2]; }
+        else if (idxs.length > 1) { setLine = "pick a set →"; setPickable = "pick"; }
+      }
+    } else if (printings.byName) {
+      const p = printingOf(c.name); setLine = p ? p[1].toUpperCase() + " · " + p[2] : "";
+    }
+    const setKey = setPickable + setLine;
+    if (row.dataset.setKey !== setKey) {
+      row.dataset.setKey = setKey;
+      const cset = row.children[1].children[1];
+      cset.textContent = setLine;
+      cset.dataset.pickable = setPickable;
+    }
+    if (row.dataset.name !== c.name || row.dataset.printingId !== (c.printing_id || "")) {
       row.dataset.name = c.name;
+      row.dataset.printingId = c.printing_id || "";
       const a = row.children[1].children[0];
       a.textContent = c.name;
       a.title = c.name;
@@ -2651,12 +3089,16 @@ function renderList(fresh) {
   drawRows();
 }
 
-// One listener for every row's − and + buttons.
+// One listener for every row's − and + buttons, and the "pick a set →" hint.
 listEl.addEventListener("click", (e) => {
+  const cset = e.target.closest(".cset[data-pickable='pick'], .cset[data-pickable='change']");
+  if (cset) { openPrintingPicker(cset.closest(".row").dataset.name, cset.closest(".row").dataset.printingId || null); return; }
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
-  const name = btn.closest(".row").dataset.name;
-  const c = cards.find((x) => x.name === name);
+  const rowEl = btn.closest(".row");
+  const name = rowEl.dataset.name;
+  const printingId = rowEl.dataset.printingId || null;
+  const c = cards.find((x) => x.name === name && (x.printing_id || null) === printingId);
   if (!c) return;
   if (btn.dataset.act === "plus") {
     c.qty++;
@@ -2664,9 +3106,9 @@ listEl.addEventListener("click", (e) => {
     const at = cards.indexOf(c);
     cards.splice(at, 1);
     showUndoToast("Removed", name, () => {
-      const existing = cards.find((x) => x.name === name); // scanned again meanwhile
+      const existing = cards.find((x) => x.name === name && (x.printing_id || null) === printingId);
       if (existing) existing.qty++;
-      else cards.splice(Math.min(at, cards.length), 0, { name, qty: 1 });
+      else cards.splice(Math.min(at, cards.length), 0, { name, printing_id: printingId, qty: 1, added_at: c.added_at });
       saveList();
       renderList(name);
     });
@@ -2748,18 +3190,27 @@ function csvField(v) { v = String(v); return /[",\r\n]/.test(v) ? '"' + v.replac
 // The leading byte-order mark makes Excel read accented names (Æther, Lim-Dûl) correctly.
 const BOM = "﻿";
 function collectionCsv(list) {
-  return BOM + "Count,Name\r\n" + list.map((c) => c.qty + "," + csvField(c.name)).join("\r\n") + "\r\n";
+  const lines = list.map((c) => {
+    const r = (c.printing_id && printings.rowById) ? (printings.rows[printings.rowById.get(c.printing_id)] || null) : printingOf(c.name);
+    return [c.qty, csvField(c.name), csvField(r ? r[1] : ""), csvField(r ? r[3] : "")].join(",");
+  });
+  return BOM + "Count,Name,Set,Collector number\r\n" + lines.join("\r\n") + "\r\n";
 }
 function textList(list) { return list.map((c) => `${c.qty} ${c.name}`).join("\n") + "\n"; }
 
-// ManaBox needs a set for every card. printingOf(name) returns
-// [name, set code, set name, collector number, Scryfall ID, rarity] or null.
-// Cards with no known printing are left out and returned as `missing`.
-function manaboxCsv(list, printingOf) {
+// ManaBox needs a set for every card. Prefers the stored printing_id; falls
+// back to printingOf(name) for the default printing. Cards with no known
+// printing are left out and returned as `missing`.
+function manaboxCsv(list) {
   const lines = ["Name,Set code,Set name,Collector number,Rarity,Quantity,Scryfall ID"];
   const missing = [];
   for (const c of list) {
-    const p = printingOf(c.name);
+    let p = null;
+    if (c.printing_id && printings.rowById) {
+      const ri = printings.rowById.get(c.printing_id);
+      if (ri !== undefined && printings.rows) p = printings.rows[ri];
+    }
+    if (!p) p = printingOf(c.name);
     if (!p) { missing.push(c); continue; }
     lines.push([p[0], p[1], p[2], p[3], p[5], c.qty, p[4]].map(csvField).join(","));
   }
@@ -2795,6 +3246,8 @@ function parseCsv(text, delim = ",") {
 const NAME_COLUMNS = ["simple name", "name", "card name", "card", "card_name", "cardname"];
 const COUNT_COLUMNS = ["quantity", "count", "qty", "amount", "copies", "reg qty"];
 const EXTRA_COUNT_COLUMNS = ["foil qty"];
+const SET_COLUMNS = ["set", "set code", "set_code", "edition"];
+const COL_COLUMNS = ["collector number", "collector_number", "collector #", "number"];
 const SECTION_LINES = /^(deck|main ?deck|sideboard|commander|companion|maybeboard|considering)\s*:?\s*$/i;
 
 // One line of a plain list: "4 Lightning Bolt", "4x Lightning Bolt" or just
@@ -2837,11 +3290,18 @@ function csvEntries(text, delim) {
     let ci = -1;
     for (const col of COUNT_COLUMNS) { ci = head.indexOf(col); if (ci >= 0) break; }
     const extra = EXTRA_COUNT_COLUMNS.map((col) => head.indexOf(col)).filter((k) => k >= 0);
+    let si = -1;
+    for (const col of SET_COLUMNS) { si = head.indexOf(col); if (si >= 0) break; }
+    let coli = -1;
+    for (const col of COL_COLUMNS) { coli = head.indexOf(col); if (coli >= 0) break; }
     const num = (v) => { const n = parseInt(String(v || "").trim(), 10); return Number.isFinite(n) ? n : 0; };
     return rows.slice(h + 1).map((r) => {
       let qty = ci >= 0 && String(r[ci] || "").trim() !== "" ? num(r[ci]) : (extra.length ? 0 : 1);
       for (const k of extra) qty += num(r[k]);
-      return { name: (r[ni] || "").trim(), qty };
+      const entry = { name: (r[ni] || "").trim(), qty };
+      if (si >= 0 && r[si]) entry.set = String(r[si]).trim().toLowerCase();
+      if (coli >= 0 && r[coli]) entry.collector_number = String(r[coli]).trim();
+      return entry;
     });
   }
   return null;
@@ -2872,12 +3332,21 @@ function parseImport(text) {
     else for (const d of [delim, ",", ";", "\t"]) { if ((entries = csvEntries(text, d))) break; }
   }
   if (!entries) entries = text.split(/\r?\n/).map(parseListLine).filter(Boolean);
+  // Resolve set+collector_number to a printing_id when fp data is available.
+  for (const e of entries) {
+    if (!e.name || !(e.qty > 0)) continue;
+    e.printing_id = null;
+    if (e.set && e.collector_number && printings.bySetCol) {
+      e.printing_id = printings.bySetCol.get(e.set + ":" + e.collector_number) || null;
+    }
+  }
   const merged = new Map();
   for (const e of entries) {
     if (!e.name || !(e.qty > 0)) continue;
-    const key = e.name.toLowerCase();
+    const key = e.name.toLowerCase() + "|" + (e.printing_id || "");
     const prev = merged.get(key);
-    if (prev) prev.qty += e.qty; else merged.set(key, { name: e.name, qty: e.qty });
+    if (prev) prev.qty += e.qty;
+    else merged.set(key, { name: e.name, qty: e.qty, printing_id: e.printing_id || null });
   }
   return [...merged.values()];
 }
@@ -2896,7 +3365,7 @@ function downloadFile(file) {
 }
 
 /* ---------- Card printings (for ManaBox export) ---------- */
-// The background worker (printingsWorkerSrc) downloads and saves them; this
+// The background worker (fpWorkerSrc) downloads and saves them; this
 // side starts it, shows progress, and reads the saved copy when needed.
 function idbGet(key) {
   return new Promise((resolve) => {
@@ -2916,30 +3385,47 @@ function idbGet(key) {
   });
 }
 
-// Reads the saved printings into a lookup by name. Double-faced and split
-// cards are found by their full name or by either face.
-function loadPrintings(force) {
+// Reads the saved fp_rows and fp_binary into in-memory lookups.
+function loadFpData(force) {
   if (printings.byName && !force) return Promise.resolve(printings.byName);
   if (!printings.loading) {
-    printings.loading = idbGet("printings").then((rec) => {
+    printings.loading = Promise.all([idbGet("fp_rows"), idbGet("fp_binary")]).then(([rowsRec, fpBuf]) => {
       printings.loading = null;
-      if (!rec || !rec.rows) return printings.byName;
-      const map = new Map();
-      for (const r of rec.rows) {
+      if (!rowsRec || !rowsRec.rows || !fpBuf) return printings.byName;
+      const rows = rowsRec.rows;
+      const byName = new Map(), allByName = new Map(), rowById = new Map(), bySetCol = new Map();
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
         const key = normName(r[0]);
-        if (!map.has(key)) map.set(key, r);
+        if (!byName.has(key)) byName.set(key, r);
+        if (!allByName.has(key)) allByName.set(key, []);
+        allByName.get(key).push(i);
+        rowById.set(r[4], i);
+        bySetCol.set(r[1] + ":" + r[3], r[4]);
       }
-      for (const r of rec.rows) {
+      // Double-faced / split cards indexed by each face name too.
+      for (const r of rows) {
         if (!r[0].includes("//")) continue;
-        for (const face of r[0].split("//")) { const k = normName(face); if (!map.has(k)) map.set(k, r); }
+        for (const face of r[0].split("//")) {
+          const k = normName(face);
+          if (!byName.has(k)) byName.set(k, r);
+          if (!allByName.has(k)) allByName.set(k, []);
+          allByName.get(k).push(rowById.get(r[4]));
+        }
       }
-      printings.byName = map; // replaces any older copy only once this one is ready
+      printings.rows = rows;
+      printings.byName = byName;
+      printings.allByName = allByName;
+      printings.rowById = rowById;
+      printings.bySetCol = bySetCol;
+      printings.fp = new Uint8Array(fpBuf);
       setRowHeight(true);
-      return map;
+      return byName;
     });
   }
   return printings.loading;
 }
+// Kept for manaboxCsv backward compat: returns [name,set,set_name,col#,id,rarity,...] or null.
 function printingOf(name) {
   const map = printings.byName;
   if (!map) return null;
@@ -2951,41 +3437,39 @@ function refreshPrintings() {
   printings.error = "";
   printings.fraction = 0;
   printings.job = new Promise((resolve, reject) => {
+    const base = location.href;
     const onMessage = (m, stop) => {
       if (m.type === "progress") { printings.fraction = m.fraction; showPrintingsInfo(); return; }
       stop();
       if (m.type === "done") {
-        printings.meta = { t: m.t, count: m.count };
-        store.set(PRINTINGS_META_KEY, JSON.stringify(printings.meta));
-        // Read the new copy in; the list shows the old sets until it's ready.
-        loadPrintings(true).then(resolve, resolve);
+        printings.meta = { t: m.t, count: m.count, version: m.version };
+        store.set(FP_META_KEY, JSON.stringify(printings.meta));
+        loadFpData(true).then(resolve, resolve);
       } else reject(new Error(m.message || "download failed"));
     };
-    const src = $("printingsWorkerSrc").textContent;
+    const src = $("fpWorkerSrc").textContent;
     let worker = null;
     try {
       worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
     } catch (e) {
-      console.warn("Printings worker unavailable, downloading on the page instead:", e);
+      console.warn("FP worker unavailable, downloading on the page instead:", e);
     }
     if (worker) {
       let started = false;
       worker.onmessage = (e) => { started = true; onMessage(e.data, () => worker.terminate()); };
       worker.onerror = (e) => {
         worker.terminate();
-        // A worker that fails before doing anything: run the same code on the page.
-        if (!started) { console.warn("Printings worker failed to start:", e && e.message); runOnPage(); }
+        if (!started) { console.warn("FP worker failed to start:", e && e.message); runOnPage(); }
         else reject(new Error((e && e.message) || "download failed"));
       };
-      worker.postMessage({ cmd: "refresh" });
+      worker.postMessage({ cmd: "refresh", base, fpVersion: FP_ACTIVE_VER });
     } else runOnPage();
 
-    // The same streaming code, run on the page with a stand-in for the worker.
     function runOnPage() {
       const scope = { onmessage: null, postMessage: (m) => onMessage(m, () => {}) };
       try { new Function("self", src)(scope); }
       catch (e) { reject(new Error("couldn't start the download (" + (e && e.message) + ")")); return; }
-      scope.onmessage({ data: { cmd: "refresh" } });
+      scope.onmessage({ data: { cmd: "refresh", base, fpVersion: FP_ACTIVE_VER } });
     }
   }).catch((err) => {
     printings.error = err.message;
@@ -3008,17 +3492,25 @@ function showPrintingsInfo() {
   const m = printings.meta, busy = !!printings.job;
   const pct = Math.round(printings.fraction * 100);
   const info = $("printingsInfo"), btn = $("refreshPrintings");
-  if (busy) info.textContent = `Downloading from Scryfall… ${pct}%` + (m ? " The saved copy is used until this finishes." : "");
-  else if (printings.error) info.textContent = `Couldn't download printings: ${printings.error}.` + (m ? ` Using the copy fetched ${fetchedText(m.t)}.` : "");
-  else if (m) info.textContent = `${m.count.toLocaleString()} cards, last fetched ${fetchedText(m.t)}.` + (Date.now() - m.t >= WEEK ? " Due for a refresh." : "");
-  else info.textContent = "Not downloaded. Only needed to export for ManaBox, which wants a set for every card.";
+  if (busy) info.textContent = `Downloading… ${pct}%` + (m ? " The saved copy is used until this finishes." : "");
+  else if (printings.error) info.textContent = `Couldn't download: ${printings.error}.` + (m ? ` Using the copy fetched ${fetchedText(m.t)}.` : "");
+  else if (m) info.textContent = `${m.count.toLocaleString()} printings (${m.version || "v1"}), fetched ${fetchedText(m.t)}.` + (Date.now() - m.t >= WEEK ? " Due for a refresh." : "");
+  else info.textContent = "Not downloaded. Used to identify the set and printing of each scanned card, and needed for ManaBox export.";
   btn.disabled = busy;
-  btn.textContent = busy ? "Downloading…" : m ? "Refresh from Scryfall" : "Download from Scryfall";
+  btn.textContent = busy ? "Downloading…" : m ? "Refresh" : "Download";
   setProgress($("printingsProgress"), busy ? printings.fraction : null);
   updateExportDialog();
 }
 
 $("refreshPrintings").addEventListener("click", () => { refreshPrintings().catch(() => {}); });
+
+const _vsel = $("fpVersionSelect");
+_vsel.value = FP_ACTIVE_VER;
+_vsel.addEventListener("change", () => {
+  const p = new URLSearchParams(location.search);
+  p.set("fp", _vsel.value);
+  location.search = "?" + p.toString(); // reloads page with new version
+});
 
 // A saved copy over a week old is refreshed in the background, a little
 // after the page opens, unless the phone is saving data or offline.
@@ -3029,11 +3521,11 @@ function maybeRefreshPrintings() {
   refreshPrintings().catch(() => {});
 }
 setTimeout(maybeRefreshPrintings, 8000);
-// Saved printings are read in once the page has settled, for the set line in the list.
+// Saved fp data is read in once the page has settled, for the set line in the list.
 if (printings.meta) {
   const later = window.requestIdleCallback || ((f) => setTimeout(f, 300));
-  later(() => loadPrintings().then((map) => {
-    if (!map) { printings.meta = null; store.del(PRINTINGS_META_KEY); showPrintingsInfo(); }
+  later(() => loadFpData().then((map) => {
+    if (!map) { printings.meta = null; store.del(FP_META_KEY); showPrintingsInfo(); }
   }), { timeout: 2000 });
 }
 
@@ -3050,20 +3542,20 @@ function closeExportDialog() { if (exportDialog.close) exportDialog.close(); els
 function updateExportDialog() {
   const go = $("exportGo"), note = $("manaboxNote");
   const m = printings.meta, busy = !!printings.job;
-  const base = "Adds a set to each card, using Scryfall's usual printing, so check sets in ManaBox afterwards.";
-  if (busy) note.textContent = `${base} Downloading printings… ${Math.round(printings.fraction * 100)}%`;
-  else if (printings.error && !m) note.textContent = `${base} Couldn't download printings: ${printings.error}.`;
+  const base = "Uses the stored printing per card; falls back to the default printing. Check sets in ManaBox afterwards.";
+  if (busy) note.textContent = `${base} Downloading… ${Math.round(printings.fraction * 100)}%`;
+  else if (printings.error && !m) note.textContent = `${base} Couldn't download: ${printings.error}.`;
   else if (m) note.textContent = `${base} Printings fetched ${fetchedText(m.t)}.`;
-  else note.textContent = `${base} Needs Scryfall's printings first: a one-off download of about 25 MB, refreshed weekly.`;
+  else note.textContent = `${base} Needs fingerprint data first: a one-off download of about 15 MB, refreshed weekly.`;
   setProgress($("exportProgress"), busy ? printings.fraction : null);
 
   if (exportFormat() !== "manabox") { go.textContent = "Export"; go.disabled = false; return; }
   if (busy) { go.textContent = "Downloading…"; go.disabled = true; }
-  else if (!m) { go.textContent = printings.error ? "Try again" : "Download printings"; go.disabled = false; }
+  else if (!m) { go.textContent = printings.error ? "Try again" : "Download fingerprint data"; go.disabled = false; }
   else if (!printings.byName) {
     go.textContent = "Export"; go.disabled = true;
-    if (exportDialog.open) loadPrintings().then((map) => {
-      if (!map) { printings.meta = null; store.del(PRINTINGS_META_KEY); } // the browser cleared it
+    if (exportDialog.open) loadFpData().then((map) => {
+      if (!map) { printings.meta = null; store.del(FP_META_KEY); }
       showPrintingsInfo();
     });
   } else { go.textContent = "Export"; go.disabled = false; }
@@ -3099,7 +3591,7 @@ $("exportGo").addEventListener("click", () => {
   if (fmt === "txt") {
     file = new File([textList(cards)], `instantsorcery-collection-${day}.txt`, { type: "text/plain" });
   } else if (fmt === "manabox") {
-    const out = manaboxCsv(cards, printingOf);
+    const out = manaboxCsv(cards);
     missing = out.missing;
     file = new File([out.text], `instantsorcery-manabox-${day}.csv`, { type: "text/csv" });
   } else {
@@ -3177,14 +3669,16 @@ importDialog.addEventListener("click", (e) => { if (e.target === importDialog) c
 
 // Adds the imported cards to the list, or replaces it, with Undo for 10 s.
 function applyImport(list, mode) {
-  const before = cards.map((c) => ({ name: c.name, qty: c.qty }));
+  const before = cards.map((c) => ({ name: c.name, printing_id: c.printing_id || null, qty: c.qty, added_at: c.added_at || 0 }));
+  const toCard = (c) => ({ name: c.name, printing_id: c.printing_id || null, qty: c.qty, added_at: Date.now() });
   if (mode === "replace") {
-    cards = list.map((c) => ({ name: c.name, qty: c.qty }));
+    cards = list.map(toCard);
   } else {
     const fresh = [];
     for (const c of list) {
-      const existing = cards.find((x) => x.name === c.name);
-      if (existing) existing.qty += c.qty; else fresh.push({ name: c.name, qty: c.qty });
+      const pid = c.printing_id || null;
+      const existing = cards.find((x) => x.name === c.name && (x.printing_id || null) === pid);
+      if (existing) existing.qty += c.qty; else fresh.push(toCard(c));
     }
     cards = fresh.concat(cards);
   }
@@ -3218,6 +3712,147 @@ $("clearYes").addEventListener("click", () => {
   present = null; recent = []; leftFrames = 0;
   showUndoToast("Cleared", label, () => { cards = before; saveList(); renderList(); });
 });
+
+/* ---------- Printing picker (M5) ---------- */
+const ORDINAL_MAP = { fourth: "4", fifth: "5", sixth: "6", seventh: "7", eighth: "8", ninth: "9", tenth: "10" };
+function expandOrdinals(s) {
+  return s.replace(/\b(fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/g, (m) => m + " " + ORDINAL_MAP[m] + "th " + ORDINAL_MAP[m]);
+}
+const printingDialog = $("printingDialog");
+function closePrintingDialog() {
+  $("printingSearch").value = "";
+  if (printingDialog.close) printingDialog.close(); else printingDialog.removeAttribute("open");
+}
+$("printingDialogClose").addEventListener("click", closePrintingDialog);
+printingDialog.addEventListener("click", (e) => { if (e.target === printingDialog) closePrintingDialog(); });
+
+function openPrintingPicker(name, currentPrintingId) {
+  if (!printings.allByName || !printings.rows) return;
+  const indices = printings.allByName.get(normName(name));
+  if (!indices || !indices.length) return;
+
+  $("printingDialogName").textContent = name;
+
+  // Compute live fingerprint scores against all candidates.
+  let liveScores = null;
+  if (printings.fp && window.InstantSorceryFP) {
+    try {
+      fpCx.drawImage(cardCv, ART_SX, ART_SY, ART_SW, ART_SH, 0, 0, FP_W, FP_H);
+      const d = fpCx.getImageData(0, 0, FP_W, FP_H);
+      const liveFp = InstantSorceryFP.fingerprint({ width: FP_W, height: FP_H, rgb: InstantSorceryFP.fromRgba(FP_W, FP_H, d.data) }, { trimPct: FP_ACTIVE_TRIM });
+      const RB = InstantSorceryFP.RECORD_BYTES;
+      liveScores = new Map();
+      for (const ri of indices) {
+        const r = printings.rows[ri];
+        const rec = InstantSorceryFP.decodeRecord(printings.fp, ri * RB);
+        liveScores.set(r[4], InstantSorceryFP.distance(liveFp, rec));
+      }
+    } catch (e) {}
+  }
+
+  // Two sort orders: date descending, and fp score ascending.
+  const dateSorted = indices.map((ri) => ({ ri, r: printings.rows[ri] }))
+    .sort((a, b) => (b.r[8] || "").localeCompare(a.r[8] || "") || a.r[3].localeCompare(b.r[3], undefined, { numeric: true }));
+  const fpSorted = liveScores
+    ? [...dateSorted].sort((a, b) => (liveScores.get(a.r[4]) || 9999) - (liveScores.get(b.r[4]) || 9999))
+    : null;
+
+  // Default to fp sort when there's a confident winner, otherwise date.
+  let sortMode = "date";
+  if (liveScores) {
+    const vals = dateSorted.map(x => liveScores.get(x.r[4]) || 9999).sort((a, b) => a - b);
+    if (vals[0] < 80 && (vals[1] ?? 9999) - vals[0] > 20) sortMode = "fp";
+  }
+
+  const ul = $("printingDialogList");
+  const sortBar = $("printingSortBar");
+  const sortDateBtn = $("printingSortDate");
+  const sortFpBtn = $("printingSortFp");
+  sortBar.hidden = !liveScores;
+
+  function buildList(items) {
+    ul.innerHTML = "";
+    let openPreviewLi = null;
+    for (const { ri, r } of items) {
+      const li = document.createElement("li");
+      li.setAttribute("role", "option");
+      li.setAttribute("aria-selected", r[4] === currentPrintingId ? "true" : "false");
+      if (r[4] === currentPrintingId) li.classList.add("pl-current");
+      li.dataset.search = expandOrdinals(normName(r[2] + " " + r[1] + " " + r[3]));
+      const main = document.createElement("div"); main.className = "pl-main";
+      const setSpan = document.createElement("div"); setSpan.className = "pl-set";
+      setSpan.textContent = r[2] + " #" + r[3];
+      const detail = document.createElement("div"); detail.className = "pl-detail";
+      const parts = [r[8], r[5], r[6] || "", r[7] || ""].filter(Boolean);
+      if (liveScores) parts.push("fp: " + Math.round(liveScores.get(r[4]) || 0));
+      detail.textContent = parts.join(" · ");
+      main.append(setSpan, detail);
+      const imgBtn = document.createElement("button");
+      imgBtn.type = "button";
+      imgBtn.className = "pl-img-btn";
+      imgBtn.setAttribute("aria-label", "Preview card image");
+      imgBtn.textContent = "▾";
+      imgBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const existing = main.querySelector(".pl-preview");
+        if (existing) {
+          existing.remove();
+          imgBtn.textContent = "▾";
+          if (openPreviewLi === li) openPreviewLi = null;
+          return;
+        }
+        if (openPreviewLi && openPreviewLi !== li) {
+          const prev = openPreviewLi.querySelector(".pl-preview");
+          if (prev) prev.remove();
+          const prevBtn = openPreviewLi.querySelector(".pl-img-btn");
+          if (prevBtn) prevBtn.textContent = "▾";
+        }
+        openPreviewLi = li;
+        imgBtn.textContent = "▴";
+        const img = document.createElement("img");
+        img.className = "pl-preview";
+        img.alt = name + " — " + r[2];
+        const id = r[4];
+        img.src = "https://cards.scryfall.io/normal/front/" + id[0] + "/" + id[1] + "/" + id + ".jpg";
+        img.loading = "lazy";
+        main.appendChild(img);
+        img.scrollIntoView({ block: "nearest" });
+      });
+      li.appendChild(main);
+      li.appendChild(imgBtn);
+      li.addEventListener("click", () => {
+        const card = cards.find((x) => x.name === name && (x.printing_id || null) === (currentPrintingId || null));
+        if (card) { card.printing_id = r[4]; saveList(); renderList(); }
+        closePrintingDialog();
+      });
+      ul.appendChild(li);
+    }
+    const q = normName($("printingSearch").value);
+    if (q) for (const li of ul.children) li.hidden = !li.dataset.search.includes(q);
+  }
+
+  function setSort(mode) {
+    sortMode = mode;
+    sortDateBtn.classList.toggle("pl-sort-active", mode === "date");
+    sortFpBtn.classList.toggle("pl-sort-active", mode === "fp");
+    buildList(mode === "fp" && fpSorted ? fpSorted : dateSorted);
+  }
+
+  sortDateBtn.onclick = () => setSort("date");
+  sortFpBtn.onclick = () => setSort("fp");
+
+  setSort(sortMode);
+
+  const searchInput = $("printingSearch");
+  searchInput.value = "";
+  searchInput.oninput = () => {
+    const q = normName(searchInput.value);
+    for (const li of ul.children) li.hidden = q ? !li.dataset.search.includes(q) : false;
+  };
+
+  if (printingDialog.showModal) printingDialog.showModal(); else printingDialog.setAttribute("open", "");
+  searchInput.focus();
+}
 
 /* ---------- Tips ---------- */
 const tipsDialog = $("tipsDialog");
