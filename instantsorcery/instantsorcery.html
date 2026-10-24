@@ -542,8 +542,8 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
 .cset:empty { display: none; }
 .cset[data-pickable="pick"] { color: var(--accent); cursor: pointer; }
 .cset[data-pickable="pick"]:hover { text-decoration: underline; text-decoration-color: var(--accent); }
-.cset[data-pickable="change"] { cursor: pointer; }
-.cset[data-pickable="change"]:hover { color: var(--accent); text-decoration: underline; text-decoration-color: var(--accent); }
+.cset[data-pickable="change"] { color: var(--accent); cursor: pointer; }
+.cset[data-pickable="change"]:hover { text-decoration: underline; text-decoration-color: var(--accent); }
 .printing-search { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--field); color: var(--ink); font-size: .95rem; }
 .printing-search:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 #printingDialog { height: min(82vh, 580px); height: min(82dvh, 580px); min-height: 320px; }
@@ -1174,10 +1174,9 @@ self.onmessage = async (e) => {
   }
 
   // Hamming is in [0, 256]; colour L1 is in [0, 48*255 = 12240]. The default
-  // weight scales colour so its contribution matches a 10-20 bit hash change
-  // for a typical different-art card. Eval tunes this.
+  // weight was tuned by eval sweep; optimal plateau is ~0.070–0.110.
   function distance(fpA, fpB, opts) {
-    const w = (opts && opts.colourWeight != null) ? opts.colourWeight : 0.012;
+    const w = (opts && opts.colourWeight != null) ? opts.colourWeight : 0.090;
     return hamming(fpA.phash, fpB.phash) + w * colourDist(fpA.colour, fpB.colour);
   }
 
@@ -1214,6 +1213,7 @@ self.onmessage = async (e) => {
   };
 });
 /* ===================== FINGERPRINT END ===================== */
+
 
 </script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
@@ -2367,6 +2367,7 @@ function showReading(text, cls) {
 const READ_TIMEOUT_MIN = 1000; // ms: the usual limit for one read
 let readTimes = [];            // recent read times, to allow slow phones more
 let lastTickAt = 0, watchdogTimer = null, readerRestart = null, movingSince = 0;
+let workerGeneration = 0; // incremented each time the worker is replaced
 
 // The limit for one read: 1 second, or 4 times this phone's usual read time
 // if that is longer, so a slow phone isn't cut off on every read.
@@ -2389,6 +2390,7 @@ function restartReader() {
   if (readerRestart) return readerRestart;
   const old = worker;
   worker = null;
+  workerGeneration++;
   try { if (old) old.terminate(); } catch (e) {}
   readerRestart = (async () => {
     setStatus("Restarting text reader…", "busy");
@@ -2403,8 +2405,8 @@ function restartReader() {
 // the one returned by recognize()). Catch it here, suppress the console noise,
 // and restart the reader so scanning continues.
 window.addEventListener("unhandledrejection", (e) => {
-  const msg = e.reason && e.reason.message;
-  if (msg && /postMessage/.test(msg)) {
+  const msg = e.reason != null ? (e.reason.message || String(e.reason)) : "";
+  if (/postMessage/.test(msg)) {
     e.preventDefault();
     if (running) restartReader();
   }
@@ -2428,11 +2430,16 @@ async function tick(id) {
   if (!running || id !== loopId) return;
   lastTickAt = performance.now();
   let wait = 200;
+  const genAtStart = workerGeneration;
   try {
     wait = await scanOnce(id);
   } catch (err) {
-    if (err && err.message === "read timed out") { await restartReader(); }
-    else console.error("Scan failed:", err);
+    if (err && err.message === "read timed out") {
+      // Only restart if the worker hasn't already been replaced (e.g. by the
+      // unhandledrejection handler). A stale timeout from a hanging recognize()
+      // promise fires after the restart and must not kill the new worker.
+      if (workerGeneration === genAtStart) await restartReader();
+    } else console.error("Scan failed:", err);
   }
   lastTickAt = performance.now();
   if (wait !== null && running && id === loopId) setTimeout(() => tick(id), wait);
@@ -2441,7 +2448,10 @@ async function tick(id) {
 // One scan. Returns how long to wait before the next, or null to stop.
 async function scanOnce(id) {
   if (!running || id !== loopId) return null;
-  if (!video.videoWidth || !index || !worker) return 100;
+  if (!video.videoWidth || !index || !worker) {
+    if (!worker && !readerRestart) restartReader();
+    return 100;
+  }
   // A camera that stopped delivering (the page went to the background, or
   // the phone paused it) is restarted.
   if (video.paused || video.readyState < 2) { video.play().catch(() => {}); return 200; }
@@ -2515,10 +2525,15 @@ async function scanOnce(id) {
   // Each read is kept with the method that made it (the same method on dark
   // and on white lettering counts as two), and unmatched text is kept too: it
   // can support a match from another read.
+  let frameFps = null;
+  if (name && printings.fp && window.InstantSorceryFP) {
+    try { frameFps = computeLiveFps(); } catch (e) {}
+  }
   recent.push(r.empty ? null : {
     name, side: trySideways, method: method * 2 + (usedLight ? 1 : 0),
     score: name ? (r.match.exact ? 0 : r.match.score || 0) : 1,
     text: name ? "" : normName(r.text || ""),
+    fps: frameFps,
   });
   if (recent.length > 4) recent.shift();
   if (name) {
@@ -2840,13 +2855,38 @@ const fpCx = fpCv.getContext("2d", { willReadFrequently: true });
 const ART_SX = Math.round(CW * 0.03), ART_SW = Math.round(CW * 0.94);
 const FP_CROP_VARIANTS = [[0.06, 0.47], [0.08, 0.48], [0.10, 0.49], [0.08, 0.51]];
 
+// Target mean luminance for art-crop normalisation (~midpoint; tunable via eval).
+const FP_LUM_TARGET = 128;
+
+// Scales RGBA pixels so mean luminance matches FP_LUM_TARGET.
+// Compensates for dim/bright ambient light without needing a reference patch.
+// Returns the original array unchanged when already close, or a new scaled copy.
+function lumNorm(rgba) {
+  const n = rgba.length >> 2;
+  let sum = 0;
+  for (let i = 0; i < rgba.length; i += 4)
+    sum += 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+  const mean = sum / n;
+  if (mean < 1) return rgba;
+  const scale = Math.min(Math.max(FP_LUM_TARGET / mean, 0.5), 2.0);
+  if (Math.abs(scale - 1) < 0.02) return rgba;
+  const out = new Uint8ClampedArray(rgba.length);
+  for (let i = 0; i < rgba.length; i += 4) {
+    out[i]     = rgba[i]     * scale;
+    out[i + 1] = rgba[i + 1] * scale;
+    out[i + 2] = rgba[i + 2] * scale;
+    out[i + 3] = rgba[i + 3];
+  }
+  return out;
+}
+
 // Returns one fingerprint per crop variant from the current cardCv frame.
 function computeLiveFps() {
   const fps = [];
   for (const [syF, shF] of FP_CROP_VARIANTS) {
     fpCx.drawImage(cardCv, ART_SX, Math.round(CH * syF), ART_SW, Math.round(CH * shF), 0, 0, FP_W, FP_H);
     const d = fpCx.getImageData(0, 0, FP_W, FP_H);
-    fps.push(InstantSorceryFP.fingerprint({ width: FP_W, height: FP_H, rgb: InstantSorceryFP.fromRgba(FP_W, FP_H, d.data) }, { trimPct: FP_ACTIVE_TRIM }));
+    fps.push(InstantSorceryFP.fingerprint({ width: FP_W, height: FP_H, rgb: InstantSorceryFP.fromRgba(FP_W, FP_H, lumNorm(d.data)) }, { trimPct: FP_ACTIVE_TRIM }));
   }
   return fps;
 }
@@ -2884,8 +2924,11 @@ function tryFingerprintId(name) {
   let liveFps;
   try {
     const t0 = performance.now();
-    liveFps = computeLiveFps();
-    console.debug("[fp]", name, "—", liveFps.length, "crop variants in", (performance.now() - t0).toFixed(1), "ms");
+    // Gather FPs from recent frames where OCR matched this card name.
+    // Falls back to a fresh single-frame compute if none were cached.
+    liveFps = recent.flatMap((r) => (r && r.name === name && r.fps) ? r.fps : []);
+    if (!liveFps.length) liveFps = computeLiveFps();
+    console.debug("[fp]", name, "—", liveFps.length, "fp variants in", (performance.now() - t0).toFixed(1), "ms");
   } catch (ex) {
     console.debug("[fp]", name, "— fingerprint error:", ex.message);
     return null;
@@ -2906,7 +2949,7 @@ function tryFingerprintId(name) {
     const r = printings.rows[s.ri];
     return `${r[1]} #${r[3]} ${s.score.toFixed(1)}`;
   }).join(", ");
-  const confident = bestScore < 80 && margin > 20;
+  const confident = scored.length > 1 && bestScore < secondScore * 0.70;
   console.debug(`[fp] ${name} → ${winner[2]} #${winner[3]} (score ${bestScore.toFixed(1)}, margin ${margin.toFixed(1)}, ${indices.length} candidates, ${ms} ms, ${confident ? "confident" : "skipped"})` + (others ? `\n     runners-up: ${others}` : ""));
   return confident ? winner[4] : null;
 }
@@ -3025,15 +3068,12 @@ function drawRows() {
       const ri = printings.rowById.get(c.printing_id);
       if (ri !== undefined && printings.rows) {
         const r = printings.rows[ri]; setLine = r[1].toUpperCase() + " · " + r[2] + " #" + r[3];
-        if (printings.allByName) {
-          const idxs = printings.allByName.get(normFor(c.name));
-          if (idxs && idxs.length > 1) setPickable = "change";
-        }
+        setPickable = "change";
       }
     } else if (printings.allByName) {
       const idxs = printings.allByName.get(normFor(c.name));
       if (idxs) {
-        if (idxs.length === 1 && printings.rows) { const r0 = printings.rows[idxs[0]]; setLine = r0[1].toUpperCase() + " · " + r0[2]; }
+        if (idxs.length === 1 && printings.rows) { const r0 = printings.rows[idxs[0]]; setLine = r0[1].toUpperCase() + " · " + r0[2]; setPickable = "change"; }
         else if (idxs.length > 1) { setLine = "pick a set →"; setPickable = "pick"; }
       }
     } else if (printings.byName) {
@@ -3737,15 +3777,13 @@ function openPrintingPicker(name, currentPrintingId) {
   let liveScores = null;
   if (printings.fp && window.InstantSorceryFP) {
     try {
-      fpCx.drawImage(cardCv, ART_SX, ART_SY, ART_SW, ART_SH, 0, 0, FP_W, FP_H);
-      const d = fpCx.getImageData(0, 0, FP_W, FP_H);
-      const liveFp = InstantSorceryFP.fingerprint({ width: FP_W, height: FP_H, rgb: InstantSorceryFP.fromRgba(FP_W, FP_H, d.data) }, { trimPct: FP_ACTIVE_TRIM });
+      const dialogFps = computeLiveFps();
       const RB = InstantSorceryFP.RECORD_BYTES;
       liveScores = new Map();
       for (const ri of indices) {
         const r = printings.rows[ri];
         const rec = InstantSorceryFP.decodeRecord(printings.fp, ri * RB);
-        liveScores.set(r[4], InstantSorceryFP.distance(liveFp, rec));
+        liveScores.set(r[4], bestVariantScore(dialogFps, rec));
       }
     } catch (e) {}
   }
@@ -3761,7 +3799,7 @@ function openPrintingPicker(name, currentPrintingId) {
   let sortMode = "date";
   if (liveScores) {
     const vals = dateSorted.map(x => liveScores.get(x.r[4]) || 9999).sort((a, b) => a - b);
-    if (vals[0] < 80 && (vals[1] ?? 9999) - vals[0] > 20) sortMode = "fp";
+    if (vals.length > 1 && vals[0] < vals[1] * 0.70) sortMode = "fp";
   }
 
   const ul = $("printingDialogList");
