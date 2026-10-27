@@ -408,6 +408,59 @@ button:disabled { opacity: .5; cursor: default; }
   font-size: .85rem;
   line-height: 1.3;
 }
+/* FP match preview — best fingerprint candidate while scanning */
+#fpMatchPreview {
+  position: absolute; bottom: 48px; right: 8px; z-index: 10;
+  pointer-events: none;
+}
+#fpMatchPreview img {
+  display: block; width: 52px; height: 72px;
+  border-radius: 3px; object-fit: cover;
+  border: 1px solid rgba(250,248,243,.35);
+  box-shadow: 0 2px 8px rgba(0,0,0,.55);
+}
+
+/* FP border/frame sample debug panel */
+#fpDebugMeta {
+  display: none;
+  position: absolute; bottom: 44px; left: 96px; z-index: 10;
+  pointer-events: none; flex-direction: column; gap: 2px; align-items: flex-start;
+}
+body.fpdebug #fpDebugMeta { display: flex; }
+#fpDebugMetaLabel {
+  font-size: 9px; font-family: monospace; line-height: 1.3; white-space: pre;
+  color: rgba(255,80,80,.9); text-shadow: 0 1px 2px #000;
+}
+#fpDebugMeta canvas { display: block; image-rendering: pixelated; }
+
+/* FP debug overlay — visible only when ?fpdebug is in the URL */
+#fpArtBox {
+  display: none;
+  position: absolute; box-sizing: border-box; pointer-events: none;
+  border: 2px dashed rgba(255,80,80,.9);
+  border-radius: 3px;
+}
+body.fpdebug #fpArtBox { display: block; }
+.fp-debug-dot {
+  display: none;
+  position: absolute; pointer-events: none; z-index: 20;
+  width: 10px; height: 10px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px #fff, 0 0 5px rgba(0,0,0,.9);
+}
+body.fpdebug .fp-debug-dot { display: block; }
+.fp-debug-dot.strip { background: rgba(255,220,0,.95); }
+.fp-debug-dot.flank { background: rgba(0,210,255,.95); }
+#fpDebugPreview {
+  display: none;
+  position: absolute; bottom: 44px; left: 8px; z-index: 10;
+  width: 80px; height: 112px;
+  border: 1px solid rgba(255,80,80,.7);
+  image-rendering: pixelated; pointer-events: none;
+  background: #000;
+}
+body.fpdebug #fpDebugPreview { display: block; }
+
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cam-dim); flex: none; align-self: center; }
 .dot.ok { background: var(--cam-ok); }
 .dot.busy { background: var(--p-ochre); }
@@ -695,6 +748,7 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
       <video id="video" playsinline muted></video>
       <svg id="overlay" viewBox="0 0 1280 960" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
       <div class="guide-layer" id="guideLayer">
+        <div id="fpArtBox"></div>
         <div class="idle" id="idle">
           <button class="primary" id="startBtn" type="button">Start camera</button>
           <p>Hold a card inside this outline, with its name in the bright band.</p>
@@ -712,6 +766,7 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
           </svg>
         </button>
       </div>
+      <div id="fpMatchPreview" hidden><img id="fpMatchImg" alt=""></div>
       <div class="stage-foot" id="foot" aria-live="polite">
         <span id="statusDot" class="dot"></span>
         <span class="current" id="current">Camera off</span>
@@ -2464,7 +2519,7 @@ async function scanOnce(id) {
   // lands, each get added. (A hand wobble changes the view by about 15-20 on
   // this measure, a card a third of the way out by about 45.)
   if (present && thumbDiff(thumb, presentThumb) > 40) {
-    if (++leftFrames >= 2) { present = null; presentThumb = null; recent = []; leftFrames = 0; sideDirWorked = false; inkLocked = false; uprightSeen = false; }
+    if (++leftFrames >= 2) { present = null; presentThumb = null; recent = []; leftFrames = 0; sideDirWorked = false; inkLocked = false; uprightSeen = false; showFpMatchPreview(null); }
   } else {
     leftFrames = 0;
   }
@@ -2551,7 +2606,7 @@ async function scanOnce(id) {
     $("meta").textContent = `${ms} ms`;
   } else {
     // The card has gone once none of the last reads found it and the view has changed.
-    if (present && !recent.some((x) => recentName(x) === present) && thumbDiff(thumb, presentThumb) > 18) { present = null; presentThumb = null; inkLocked = false; uprightSeen = false; }
+    if (present && !recent.some((x) => recentName(x) === present) && thumbDiff(thumb, presentThumb) > 18) { present = null; presentThumb = null; inkLocked = false; uprightSeen = false; showFpMatchPreview(null); }
     if (!present) {
       // Glare across the name is the commonest reason a card won't read, and
       // tilting the card fixes it, so say so.
@@ -2845,15 +2900,80 @@ function saveList() {
 }
 function scryfallUrl(name) { return "https://scryfall.com/search?q=" + encodeURIComponent('!"' + name + '"'); }
 
+// Fingerprint version config. fpW/fpH are the intermediate canvas dimensions:
+// landscape (matching the art_crop source ratio ~1.38:1) so the live crop feeds
+// the fingerprint function without a double-squish. trimPct trims sleeve edges.
+// To add a new version: build the DB, add an entry here, update BUNDLE_VERSION.
+const FP_VERSIONS = {
+  "v2": { trimPct: 0.05, fpW: 160, fpH: 116 },
+  "v3": { trimPct: 0.10, fpW: 160, fpH: 116 },
+  "v4": { trimPct: 0.12, fpW: 160, fpH: 116 },
+};
+const FP_ACTIVE_VER = (new URLSearchParams(location.search).get("fp") in FP_VERSIONS)
+  ? new URLSearchParams(location.search).get("fp") : "v4";
+const FP_ACTIVE_TRIM = FP_VERSIONS[FP_ACTIVE_VER].trimPct;
+
 // Small offscreen canvas for reading the card frame into fingerprint.
-const FP_W = 160, FP_H = 224;
+const FP_W = FP_VERSIONS[FP_ACTIVE_VER].fpW, FP_H = FP_VERSIONS[FP_ACTIVE_VER].fpH;
 const fpCv = document.createElement("canvas"); fpCv.width = FP_W; fpCv.height = FP_H;
 const fpCx = fpCv.getContext("2d", { willReadFrequently: true });
+// Debug preview canvas — null unless ?fpdebug; sized to NORM_W×NORM_H (128×178).
+let fpDebugCv = null, fpDebugCx = null;
+let _metaLabel = null; // set in FP_DEBUG block; shows border/frame classification
+let _fpDots = null;   // set in FP_DEBUG block; 6 dots showing live sample locations
+
+// Shows the Scryfall small image for the best FP candidate, throttled to
+// at most one new fetch every 3 s. Pass null to clear immediately.
+let _fpMatchId = null, _fpMatchAt = 0;
+function showFpMatchPreview(id) {
+  if (!id) {
+    $("fpMatchPreview").hidden = true;
+    _fpMatchId = null; _fpMatchAt = 0;
+    return;
+  }
+  if (id === _fpMatchId) return;
+  if (Date.now() - _fpMatchAt < 3000) return;
+  _fpMatchId = id; _fpMatchAt = Date.now();
+  $("fpMatchImg").src = "https://cards.scryfall.io/small/front/" + id[0] + "/" + id[1] + "/" + id + ".jpg";
+  $("fpMatchPreview").hidden = false;
+}
 // Art-box crop variants: slight vertical offsets to compensate for the live
 // crop not perfectly matching Scryfall's tight art_crop boundary.
 // Each entry is [top_frac, height_frac] relative to CH.
 const ART_SX = Math.round(CW * 0.03), ART_SW = Math.round(CW * 0.94);
 const FP_CROP_VARIANTS = [[0.06, 0.47], [0.08, 0.48], [0.10, 0.49], [0.08, 0.51]];
+
+// Border/frame sampling regions.
+// Edge strips sample the middle of each card edge (not corners, which fingers cover).
+// Flanks sample the title-bar sides (outside the name text) for frame era.
+const META_INSET       = 4;
+const META_STRIP_LEN   = Math.round(CW * 0.08);  // ~50 px along the edge
+const META_STRIP_THICK = 14;                       // perpendicular thickness
+const META_FLANK_W = Math.round(CW * 0.04);       // ~25 px wide
+const META_FLANK_Y = Math.round(CH * BAND.y0);    // top of name band
+const META_FLANK_H = Math.round(CH * (BAND.y1 - BAND.y0)); // ~110 px tall
+// Canvas layout: [top strip][bot strip][left strip][right strip][left flank][right flank]
+//   x=0               : top (META_STRIP_LEN × META_STRIP_THICK)
+//   x=0, y=THICK      : bottom (META_STRIP_LEN × META_STRIP_THICK)
+//   x=META_STRIP_LEN  : left  (META_STRIP_THICK × META_STRIP_LEN)
+//   x=…+THICK         : right (META_STRIP_THICK × META_STRIP_LEN)
+//   x=…+THICK*2       : flanks (META_FLANK_W*2 × META_FLANK_H)
+const META_FX = META_STRIP_LEN + META_STRIP_THICK * 2; // x-start of flank columns
+const metaSampleCv = document.createElement("canvas");
+metaSampleCv.width  = META_FX + META_FLANK_W * 2;
+metaSampleCv.height = Math.max(META_STRIP_LEN, META_FLANK_H);
+const metaSampleCx = metaSampleCv.getContext("2d", { willReadFrequently: true });
+
+// Small canvas for the horizontal name-band scan used by findCardBoundsFromBand().
+// Holds two strips (left side + right side at name-band centre) stacked vertically.
+const BAND_SCAN_D    = Math.round(CW * 0.25); // ~158px scan depth from each side
+const BAND_SCAN_H    = 20;                     // strip height averaged per column
+const BAND_SCAN_GRAD = 15;                     // min luminance gradient to detect card edge
+const BAND_CENTER_Y  = Math.round(CH * (BAND.y0 + BAND.y1) / 2); // name-band centre in cardCv
+const bandScanCv  = document.createElement("canvas");
+bandScanCv.width  = BAND_SCAN_D;
+bandScanCv.height = BAND_SCAN_H * 2;
+const bandScanCx  = bandScanCv.getContext("2d", { willReadFrequently: true });
 
 // Target mean luminance for art-crop normalisation (~midpoint; tunable via eval).
 const FP_LUM_TARGET = 128;
@@ -2861,15 +2981,18 @@ const FP_LUM_TARGET = 128;
 // Scales RGBA pixels so mean luminance matches FP_LUM_TARGET.
 // Compensates for dim/bright ambient light without needing a reference patch.
 // Returns the original array unchanged when already close, or a new scaled copy.
+// Returns { rgba: normalised pixels, scale: correction factor applied }.
+// scale=1 means the image was already at target; >1 means it was dark; <1 bright.
+// The scale is used downstream to attenuate the colour-grid weight when lighting
+// is poor (large corrections mean colour information is less trustworthy).
 function lumNorm(rgba) {
   const n = rgba.length >> 2;
   let sum = 0;
   for (let i = 0; i < rgba.length; i += 4)
     sum += 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
   const mean = sum / n;
-  if (mean < 1) return rgba;
-  const scale = Math.min(Math.max(FP_LUM_TARGET / mean, 0.5), 2.0);
-  if (Math.abs(scale - 1) < 0.02) return rgba;
+  const scale = mean < 1 ? 2.0 : Math.min(Math.max(FP_LUM_TARGET / mean, 0.5), 2.0);
+  if (mean < 1 || Math.abs(scale - 1) < 0.02) return { rgba, scale };
   const out = new Uint8ClampedArray(rgba.length);
   for (let i = 0; i < rgba.length; i += 4) {
     out[i]     = rgba[i]     * scale;
@@ -2877,25 +3000,177 @@ function lumNorm(rgba) {
     out[i + 2] = rgba[i + 2] * scale;
     out[i + 3] = rgba[i + 3];
   }
-  return out;
+  return { rgba: out, scale };
 }
 
-// Returns one fingerprint per crop variant from the current cardCv frame.
+// Returns one fingerprint per crop variant from the current cardCv frame,
+// plus the mean luminance-correction scale across variants (>1 = dark scene).
 function computeLiveFps() {
   const fps = [];
-  for (const [syF, shF] of FP_CROP_VARIANTS) {
+  let totalScale = 0;
+  for (let vi = 0; vi < FP_CROP_VARIANTS.length; vi++) {
+    const [syF, shF] = FP_CROP_VARIANTS[vi];
     fpCx.drawImage(cardCv, ART_SX, Math.round(CH * syF), ART_SW, Math.round(CH * shF), 0, 0, FP_W, FP_H);
     const d = fpCx.getImageData(0, 0, FP_W, FP_H);
-    fps.push(InstantSorceryFP.fingerprint({ width: FP_W, height: FP_H, rgb: InstantSorceryFP.fromRgba(FP_W, FP_H, lumNorm(d.data)) }, { trimPct: FP_ACTIVE_TRIM }));
+    const { rgba, scale } = lumNorm(d.data);
+    const rgb = InstantSorceryFP.fromRgba(FP_W, FP_H, rgba);
+    fps.push(InstantSorceryFP.fingerprint({ width: FP_W, height: FP_H, rgb }, { trimPct: FP_ACTIVE_TRIM }));
+    totalScale += scale;
+    // On the first variant, show the trimmed+normalised image in the debug preview.
+    if (FP_DEBUG && fpDebugCx && vi === 0) {
+      const FP = InstantSorceryFP;
+      const norm = FP.resizeArea(FP.trimEdges({ w: FP_W, h: FP_H, data: rgb }, FP_ACTIVE_TRIM), FP.NORM_W, FP.NORM_H);
+      const imgd = fpDebugCx.createImageData(FP.NORM_W, FP.NORM_H);
+      for (let i = 0, j = 0; i < norm.data.length; i += 3, j += 4) {
+        imgd.data[j] = norm.data[i]; imgd.data[j+1] = norm.data[i+1]; imgd.data[j+2] = norm.data[i+2]; imgd.data[j+3] = 255;
+      }
+      fpDebugCx.putImageData(imgd, 0, 0);
+    }
   }
-  return fps;
+  return { fps, meanScale: totalScale / FP_CROP_VARIANTS.length };
 }
 
 // Best distance across all crop variants for one candidate record.
-function bestVariantScore(fps, rec) {
+function bestVariantScore(fps, rec, colourWeight) {
+  const opts = colourWeight != null ? { colourWeight } : undefined;
   let best = Infinity;
-  for (const fp of fps) best = Math.min(best, InstantSorceryFP.distance(fp, rec));
+  for (const fp of fps) best = Math.min(best, InstantSorceryFP.distance(fp, rec, opts));
   return best;
+}
+
+// Derives the card bounding box by scanning horizontally at the name-band centre —
+// the y level where we KNOW the card is present because OCR fired successfully.
+// Two strips (left edge + right edge) give cardWidth; the 63:88 aspect ratio
+// projects that to cardHeight and then to all four insets.
+// Returns {top, bottom, left, right} inset pixels, or null if detection fails.
+function findCardBoundsFromBand() {
+  const d = BAND_SCAN_D, h = BAND_SCAN_H, bcy = BAND_CENTER_Y;
+  // Copy left strip (x=0..d) and right strip (x=CW-d..CW) at name-band y.
+  bandScanCx.drawImage(cardCv, 0,    bcy - (h>>1), d, h,  0, 0, d, h);
+  bandScanCx.drawImage(cardCv, CW-d, bcy - (h>>1), d, h,  0, h, d, h);
+  const lPx = bandScanCx.getImageData(0, 0, d, h).data;
+  const rPx = bandScanCx.getImageData(0, h, d, h).data;
+
+  // Average luminance per column, outer-to-inner order.
+  // fromRight=true reverses so column 0 = outermost right edge.
+  function scanCols(px, fromRight) {
+    const lum = new Float32Array(d);
+    for (let x = 0; x < d; x++) {
+      const sx = fromRight ? d - 1 - x : x;
+      let s = 0;
+      for (let y = 0; y < h; y++) {
+        const i = (y * d + sx) * 4;
+        s += 0.299 * px[i] + 0.587 * px[i+1] + 0.114 * px[i+2];
+      }
+      lum[x] = s / h;
+    }
+    let maxG = 0, best = -1;
+    for (let x = 1; x < d - 1; x++) {
+      const g = Math.abs(lum[x+1] - lum[x-1]);
+      if (g > maxG) { maxG = g; best = x; }
+    }
+    return maxG >= BAND_SCAN_GRAD ? best : null;
+  }
+
+  const leftInset  = scanCols(lPx, false);
+  const rightInset = scanCols(rPx, true);
+  if (leftInset === null || rightInset === null) return null;
+
+  const cardW = CW - leftInset - rightInset;
+  if (cardW < CW * 0.3) return null; // implausibly small
+
+  const cardH    = Math.round(cardW * 88 / 63);
+  const bandFrac = (BAND.y0 + BAND.y1) / 2; // name-band centre as fraction of card height
+  const cardTop  = Math.round(bcy - bandFrac * cardH);
+
+  return {
+    top:    Math.max(0, cardTop),
+    bottom: Math.max(0, CH - cardTop - cardH),
+    left:   leftInset,
+    right:  rightInset,
+  };
+}
+
+// Samples card border (edge midpoints) and title-bar flanks from cardCv into
+// metaSampleCv (6 GPU→GPU drawImage calls, 3 CPU readbacks from the
+// willReadFrequently canvas). Edge midpoints are used instead of corners so
+// that fingers gripping the card sides don't contaminate the border read.
+// row[6] = border ("black"|"white"|"silver"|"gold")
+// row[7] = frame  ("1993"|"1997"|"2003"|"2015"|"future"|…)
+function detectCardMeta(candidateBorders = null) {
+  const sl = META_STRIP_LEN, st = META_STRIP_THICK, ci = META_INSET;
+  const fw = META_FLANK_W, fh = META_FLANK_H, fx = META_FX;
+  const midCW = CW >> 1, midCH = CH >> 1, halfL = sl >> 1;
+
+  // Locate the card within cardCv using the name-band horizontal scan.
+  // Falls back to the fixed META_INSET positions when detection fails (card flush).
+  const bounds = findCardBoundsFromBand();
+  const topY  = (bounds ? bounds.top               : 0)  + ci;
+  const botY  = (bounds ? CH - bounds.bottom        : CH) - ci - st;
+  const lX    = (bounds ? bounds.left               : 0)  + ci;
+  const rX    = (bounds ? CW - bounds.right         : CW) - ci - st;
+  const fy    = Math.min((bounds ? bounds.top : 0) + META_FLANK_Y, CH - fh);
+  const lfX   = bounds ? bounds.left : 0;
+  const rfX   = bounds ? CW - bounds.right - fw : CW - fw;
+
+  // Edge midpoint strips → left of metaSampleCv.
+  metaSampleCx.drawImage(cardCv, midCW-halfL, topY,  sl, st, 0,     0,  sl, st); // top
+  metaSampleCx.drawImage(cardCv, midCW-halfL, botY,  sl, st, 0,     st, sl, st); // bottom
+  metaSampleCx.drawImage(cardCv, lX, midCH-halfL,    st, sl, sl,    0,  st, sl); // left
+  metaSampleCx.drawImage(cardCv, rX, midCH-halfL,    st, sl, sl+st, 0,  st, sl); // right
+  // Title-bar flanks → right of metaSampleCv.
+  metaSampleCx.drawImage(cardCv, lfX, fy, fw, fh, fx,    0, fw, fh);
+  metaSampleCx.drawImage(cardCv, rfX, fy, fw, fh, fx+fw, 0, fw, fh);
+
+  // Two readbacks cover all four strips (horizontal pair + vertical pair).
+  const hPx = metaSampleCx.getImageData(0,  0, sl,   st*2).data; // top + bottom
+  const vPx = metaSampleCx.getImageData(sl, 0, st*2, sl  ).data; // left + right
+  const flPx = metaSampleCx.getImageData(fx, 0, fw*2, fh ).data; // flanks
+
+  // --- border: average all four strips ---
+  let r=0, g=0, b=0, n=0;
+  for (let i=0; i<hPx.length; i+=4) { r+=hPx[i]; g+=hPx[i+1]; b+=hPx[i+2]; n++; }
+  for (let i=0; i<vPx.length; i+=4) { r+=vPx[i]; g+=vPx[i+1]; b+=vPx[i+2]; n++; }
+  r/=n; g/=n; b/=n;
+  const lum = 0.299*r + 0.587*g + 0.114*b;
+  // Silver and gold are set-specific rarities; only test for them when at least
+  // one candidate printing actually carries that border.
+  const hasGold   = !candidateBorders || candidateBorders.has("gold");
+  const hasSilver = !candidateBorders || candidateBorders.has("silver");
+  let border;
+  if      (lum < 60)                                                          border = "black";
+  else if (hasGold   && r > 130 && r > b*1.6 && g > b)                       border = "gold";
+  else if (hasSilver && Math.max(r,g,b) - Math.min(r,g,b) < 30 && lum < 160) border = "silver";
+  else                                                                        border = "white";
+
+  // --- frame era: average both title-bar flanks ---
+  let fr=0, fg=0, fb=0;
+  for (let i=0; i<flPx.length; i+=4) { fr+=flPx[i]; fg+=flPx[i+1]; fb+=flPx[i+2]; }
+  fr /= flPx.length>>2; fg /= flPx.length>>2; fb /= flPx.length>>2;
+  const frame = (fr - fb > 35 && fr > 100) ? "old" : "modern";
+
+  if (FP_DEBUG && _metaLabel)
+    _metaLabel.textContent = `border:${border} (${r|0},${g|0},${b|0})\nframe:${frame} (${fr|0},${fg|0},${fb|0})\nbounds:${bounds ? `t${bounds.top} b${bounds.bottom} l${bounds.left} r${bounds.right}` : "none"}`;
+
+  if (FP_DEBUG && _fpDots) {
+    const gl = $("guideLayer");
+    const glL = parseFloat(gl.style.left) || 0;
+    const glT = parseFloat(gl.style.top)  || 0;
+    const glW = gl.offsetWidth  || CW;
+    const glH = gl.offsetHeight || CH;
+    const dot = (i, x, y) => {
+      _fpDots[i].style.left = (glL + x / CW * glW).toFixed(1) + "px";
+      _fpDots[i].style.top  = (glT + y / CH * glH).toFixed(1) + "px";
+    };
+    dot(0, midCW,        topY + st / 2);  // top strip centre
+    dot(1, midCW,        botY + st / 2);  // bottom strip centre
+    dot(2, lX  + st / 2, midCH);          // left strip centre
+    dot(3, rX  + st / 2, midCH);          // right strip centre
+    dot(4, lfX + fw / 2, fy + fh / 2);   // left flank centre
+    dot(5, rfX + fw / 2, fy + fh / 2);   // right flank centre
+  }
+
+  return { border, frame };
 }
 
 // Returns the best printing_id for the current camera frame, or null if
@@ -2919,38 +3194,64 @@ function tryFingerprintId(name) {
   if (indices.length === 1) {
     const r = printings.rows[indices[0]];
     console.debug("[fp]", name, "— single printing, auto-resolved →", r[2], "#" + r[3]);
+    detectCardMeta(); // update debug display even for single printings
+    showFpMatchPreview(r[4]);
     return r[4];
   }
-  let liveFps;
+
+  // Pre-filter candidates by detected border colour and frame era.
+  // Cascade: apply both filters, then border-only, then none — so a detection
+  // error never eliminates all candidates.
+  const candidateBorders = new Set(indices.map(ri => printings.rows[ri][6]));
+  const { border: detBorder, frame: detFrame } = detectCardMeta(candidateBorders);
+  const byBorder = indices.filter(ri => printings.rows[ri][6] === detBorder);
+  const byBoth   = byBorder.filter(ri => {
+    const f = printings.rows[ri][7];
+    return detFrame === "old" ? (f === "1993" || f === "1997") : (f !== "1993" && f !== "1997");
+  });
+  const activeIndices = byBoth.length > 0 ? byBoth : byBorder.length > 0 ? byBorder : indices;
+  console.debug(`[fp] ${name} — meta filter: border=${detBorder} frame=${detFrame} → ${indices.length}→${activeIndices.length} candidates`);
+
+  let liveFps, colourWeight;
   try {
     const t0 = performance.now();
-    // Gather FPs from recent frames where OCR matched this card name.
+    // Gather FPs and lighting scales from recent frames where OCR matched this card name.
     // Falls back to a fresh single-frame compute if none were cached.
-    liveFps = recent.flatMap((r) => (r && r.name === name && r.fps) ? r.fps : []);
-    if (!liveFps.length) liveFps = computeLiveFps();
-    console.debug("[fp]", name, "—", liveFps.length, "fp variants in", (performance.now() - t0).toFixed(1), "ms");
+    const recentMatches = recent.filter((r) => r && r.name === name && r.fps);
+    liveFps = recentMatches.flatMap((r) => r.fps.fps);
+    if (!liveFps.length) {
+      const computed = computeLiveFps();
+      liveFps = computed.fps;
+      colourWeight = 0.090 * Math.min(1, Math.min(computed.meanScale, 1 / computed.meanScale));
+    } else {
+      const scales = recentMatches.map((r) => r.fps.meanScale);
+      const meanScale = scales.reduce((a, b) => a + b, 0) / scales.length;
+      colourWeight = 0.090 * Math.min(1, Math.min(meanScale, 1 / meanScale));
+    }
+    console.debug("[fp]", name, "—", liveFps.length, "fp variants in", (performance.now() - t0).toFixed(1), "ms, colourWeight", colourWeight.toFixed(3));
   } catch (ex) {
     console.debug("[fp]", name, "— fingerprint error:", ex.message);
     return null;
   }
   const RB = InstantSorceryFP.RECORD_BYTES;
   const t1 = performance.now();
-  const scored = indices.map((ri, k) => {
+  const scored = activeIndices.map((ri, k) => {
     const rec = InstantSorceryFP.decodeRecord(printings.fp, ri * RB);
-    return { k, ri, score: bestVariantScore(liveFps, rec) };
+    return { k, ri, score: bestVariantScore(liveFps, rec, colourWeight) };
   });
   scored.sort((a, b) => a.score - b.score);
   const ms = (performance.now() - t1).toFixed(1);
   const bestScore = scored[0].score;
   const secondScore = scored[1] ? scored[1].score : Infinity;
   const margin = secondScore - bestScore;
-  const winner = printings.rows[indices[scored[0].k]];
+  const winner = printings.rows[activeIndices[scored[0].k]];
   const others = scored.slice(1, 4).map(s => {
     const r = printings.rows[s.ri];
     return `${r[1]} #${r[3]} ${s.score.toFixed(1)}`;
   }).join(", ");
   const confident = scored.length > 1 && bestScore < secondScore * 0.70;
-  console.debug(`[fp] ${name} → ${winner[2]} #${winner[3]} (score ${bestScore.toFixed(1)}, margin ${margin.toFixed(1)}, ${indices.length} candidates, ${ms} ms, ${confident ? "confident" : "skipped"})` + (others ? `\n     runners-up: ${others}` : ""));
+  console.debug(`[fp] ${name} → ${winner[2]} #${winner[3]} (score ${bestScore.toFixed(1)}, margin ${margin.toFixed(1)}, ${activeIndices.length} candidates, ${ms} ms, ${confident ? "confident" : "skipped"})` + (others ? `\n     runners-up: ${others}` : ""));
+  showFpMatchPreview(winner[4]);
   return confident ? winner[4] : null;
 }
 
@@ -2982,13 +3283,56 @@ function addCard(name) {
    Only the rows in view (plus a few either side) exist on the page. As the
    list scrolls, the same row elements are given different cards, so drawing
    costs the same for 50 cards or 10,000. */
-// Fingerprint version config. To add a new version: build the DB, add an
-// entry here, and update BUNDLE_VERSION in the worker above.
-const FP_VERSIONS = { "v2": { trimPct: 0.05 }, "v3": { trimPct: 0.10 }, "v4": { trimPct: 0.12 } };
-const FP_ACTIVE_VER  = (new URLSearchParams(location.search).get("fp") in FP_VERSIONS)
-  ? new URLSearchParams(location.search).get("fp") : "v4";
-const FP_ACTIVE_TRIM = FP_VERSIONS[FP_ACTIVE_VER].trimPct;
+const FP_DEBUG = new URLSearchParams(location.search).has("fpdebug");
 const FP_META_KEY = "cns.fp.meta." + FP_ACTIVE_VER; // version-scoped so IDB slots don't collide
+
+// When ?fpdebug is present: show a dashed art-crop bounding box and a live
+// preview of the image that goes into the fingerprint.
+if (FP_DEBUG) {
+  document.body.classList.add("fpdebug");
+  // Position the art-crop box relative to guideLayer (which maps 1:1 to the card).
+  const yTops = FP_CROP_VARIANTS.map(([y]) => y);
+  const yBots = FP_CROP_VARIANTS.map(([y, h]) => y + h);
+  const artBox = $("fpArtBox");
+  artBox.style.left   = (ART_SX / CW * 100).toFixed(2) + "%";
+  artBox.style.top    = (Math.min(...yTops) * 100).toFixed(2) + "%";
+  artBox.style.width  = (ART_SW / CW * 100).toFixed(2) + "%";
+  artBox.style.height = ((Math.max(...yBots) - Math.min(...yTops)) * 100).toFixed(2) + "%";
+  // Live sample-location dots: yellow = border strips, cyan = frame flanks.
+  // Appended to stage (not guideLayer) so positions are absolute stage pixels,
+  // computed fresh each frame by detectCardMeta() from guideLayer's rendered size.
+  function makeDot(cls) {
+    const el = document.createElement("div");
+    el.className = "fp-debug-dot " + cls;
+    stage.appendChild(el);
+    return el;
+  }
+  _fpDots = [
+    makeDot("strip"), // 0: top strip
+    makeDot("strip"), // 1: bottom strip
+    makeDot("strip"), // 2: left strip
+    makeDot("strip"), // 3: right strip
+    makeDot("flank"), // 4: left flank
+    makeDot("flank"), // 5: right flank
+  ];
+  // Create a preview canvas showing the trimmed+normalised image sent to the
+  // fingerprint scorer (128×178, the same NORM_W×NORM_H the builder targets).
+  fpDebugCv = document.createElement("canvas");
+  fpDebugCv.width = 128; fpDebugCv.height = 178;
+  fpDebugCv.id = "fpDebugPreview";
+  fpDebugCx = fpDebugCv.getContext("2d");
+  stage.appendChild(fpDebugCv);
+  // Meta panel: shows corner patches (border) and title-bar flanks (frame era).
+  // metaSampleCv is already the sampling canvas — reuse it as the display canvas.
+  _metaLabel = document.createElement("span");
+  _metaLabel.id = "fpDebugMetaLabel";
+  _metaLabel.textContent = "border:?\nframe:?";
+  const metaPanel = document.createElement("div");
+  metaPanel.id = "fpDebugMeta";
+  metaPanel.appendChild(_metaLabel);
+  metaPanel.appendChild(metaSampleCv);
+  stage.appendChild(metaPanel);
+}
 const printings = {
   meta: (() => { try { return JSON.parse(store.get(FP_META_KEY) || "null"); } catch (e) { return null; } })(),
   byName: null,    // Map name -> first row [name,set,set_name,col#,id,rarity,border,frame,date]
@@ -3722,7 +4066,7 @@ function applyImport(list, mode) {
     }
     cards = fresh.concat(cards);
   }
-  present = null; recent = []; leftFrames = 0;
+  present = null; recent = []; leftFrames = 0; showFpMatchPreview(null);
   saveList();
   renderList();
   const total = list.reduce((n, c) => n + c.qty, 0);
@@ -3749,7 +4093,7 @@ $("clearYes").addEventListener("click", () => {
   closeClearDialog();
   const before = cards, label = cardCountText();
   cards = []; saveList(); renderList();
-  present = null; recent = []; leftFrames = 0;
+  present = null; recent = []; leftFrames = 0; showFpMatchPreview(null);
   showUndoToast("Cleared", label, () => { cards = before; saveList(); renderList(); });
 });
 
