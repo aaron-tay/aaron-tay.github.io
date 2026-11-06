@@ -633,8 +633,12 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
 #qtyEdit::-webkit-inner-spin-button,
 #qtyEdit::-webkit-outer-spin-button { -webkit-appearance: none; }
 .cell { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
-.cset { font-size: .76rem; line-height: 1.2; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cset:empty { display: none; }
+.cset { font-size: .76rem; line-height: 1.2; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
+.cset:empty, .cset[data-empty] { display: none; }
+.cset .csym { width: 1.25em; height: 1.25em; flex: 0 0 auto; }
+@media (prefers-color-scheme: dark) { .cset .csym { filter: invert(1); } }
+.cset .csym[hidden] { display: none; }
+.cset .csym-txt { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .cset[data-pickable="pick"] { color: var(--accent); cursor: pointer; }
 .cset[data-pickable="pick"]:hover { text-decoration: underline; text-decoration-color: var(--accent); }
 .cset[data-pickable="change"] { color: var(--accent); cursor: pointer; }
@@ -1015,13 +1019,19 @@ self.onmessage = async (e) => {
     let off = 0;
     for (const c of chunks) { buf.set(c, off); off += c.length; }
 
-    // Parse: [4-byte uint32 BE: N] [N×96 bytes: fp] [N NDJSON lines]
-    if (buf.length < 4) throw new Error("bundle too short");
+    // Parse: [4B uint32 BE: N] [4B uint32 BE: setsLen] [N×96 bytes: fp]
+    //        [setsLen bytes: sets JSON] [N NDJSON lines]
+    if (buf.length < 8) throw new Error("bundle too short");
     const N = (buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3]) >>> 0;
-    const fpEnd = 4 + N * RECORD_BYTES;
-    if (buf.length < fpEnd) throw new Error("bundle truncated before fp data");
-    const fpBuf = buf.buffer.slice(4, fpEnd);
-    const ndjson = new TextDecoder().decode(buf.subarray(fpEnd));
+    const setsLen = (buf[4] << 24 | buf[5] << 16 | buf[6] << 8 | buf[7]) >>> 0;
+    const fpEnd = 8 + N * RECORD_BYTES;
+    const setsEnd = fpEnd + setsLen;
+    if (buf.length < setsEnd) throw new Error("bundle truncated before sets data");
+    const fpBuf = buf.buffer.slice(8, fpEnd);
+    const setsJson = new TextDecoder().decode(buf.subarray(fpEnd, setsEnd));
+    const ndjson = new TextDecoder().decode(buf.subarray(setsEnd));
+    let setHashes = {};
+    try { setHashes = JSON.parse(setsJson) || {}; } catch (e) { throw new Error("bundle: bad sets JSON"); }
 
     self.postMessage({ type: "progress", fraction: 0.95, cards: 0 });
 
@@ -1041,6 +1051,7 @@ self.onmessage = async (e) => {
       const store = tx.objectStore("data");
       store.put({ t, rows }, "fp_rows");
       store.put(fpBuf, "fp_binary");
+      store.put(setHashes, "set_hashes");
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error("couldn't save"));
@@ -3679,11 +3690,35 @@ const printings = {
   bySetCol: null,  // Map "set:col#" -> id
   rows: null,      // the flat rows array
   fp: null,        // Uint8Array of concatenated binary fingerprint records
+  setHashes: null, // Map set_code -> Uint8Array (8-byte aHash of set symbol)
+  sets: null,      // Map set_code -> { name, svg } from Scryfall /sets
   loading: null,
   job: null,
   fraction: 0,
   error: "",
 };
+
+// Scryfall /sets once per page load; populates printings.sets with
+// { name, svg } keyed by code. The hashes themselves ride in the fp bundle;
+// this call just supplies fresh human-readable names and icon URLs.
+function loadScryfallSets() {
+  if (printings.sets) return Promise.resolve(printings.sets);
+  if (printings._setsLoading) return printings._setsLoading;
+  printings._setsLoading = fetch("https://api.scryfall.com/sets", { headers: { Accept: "application/json" } })
+    .then((r) => r.ok ? r.json() : null)
+    .then((json) => {
+      const map = new Map();
+      if (json && Array.isArray(json.data)) {
+        for (const s of json.data) if (s.code) map.set(s.code, { name: s.name, svg: s.icon_svg_uri });
+      }
+      printings.sets = map;
+      return map;
+    })
+    .catch(() => (printings.sets = new Map()))
+    .finally(() => { printings._setsLoading = null; });
+  return printings._setsLoading;
+}
+loadScryfallSets().then(() => { if (typeof drawRows === "function") drawRows(); });
 
 let ROW_H = 44; const OVERSCAN = 6;
 // Rows grow to fit a set line when printings are available.
@@ -3717,6 +3752,9 @@ function makeRow() {
   const cell = document.createElement("span"); cell.className = "cell";
   const a = document.createElement("a"); a.className = "cname"; a.target = "_blank"; a.rel = "noopener";
   const set = document.createElement("span"); set.className = "cset";
+  const csym = document.createElement("img"); csym.className = "csym"; csym.alt = ""; csym.hidden = true;
+  const ctxt = document.createElement("span"); ctxt.className = "csym-txt";
+  set.append(csym, ctxt);
   cell.append(a, set);
   const btns = document.createElement("span"); btns.className = "rowbtns";
   const minus = document.createElement("button"); minus.type = "button"; minus.textContent = "−"; minus.dataset.act = "minus";
@@ -3745,28 +3783,33 @@ function drawRows() {
     row.children[0].textContent = c.qty + "×";
     // Set line: show resolved printing, "pick a set →" when unresolved, or
     // default set name when fingerprint data isn't loaded yet.
-    let setLine = "", setPickable = "";
+    let setLine = "", setPickable = "", setCode = "";
     if (c.printing_id && printings.rowById) {
       const ri = printings.rowById.get(c.printing_id);
       if (ri !== undefined && printings.rows) {
-        const r = printings.rows[ri]; setLine = r[1].toUpperCase() + " · " + r[2] + " #" + r[3];
+        const r = printings.rows[ri]; setLine = r[1].toUpperCase() + " · " + r[2] + " #" + r[3]; setCode = r[1];
         setPickable = "change";
       }
     } else if (printings.allByName) {
       const idxs = printings.allByName.get(normFor(c.name));
       if (idxs) {
-        if (idxs.length === 1 && printings.rows) { const r0 = printings.rows[idxs[0]]; setLine = r0[1].toUpperCase() + " · " + r0[2]; setPickable = "change"; }
+        if (idxs.length === 1 && printings.rows) { const r0 = printings.rows[idxs[0]]; setLine = r0[1].toUpperCase() + " · " + r0[2]; setCode = r0[1]; setPickable = "change"; }
         else if (idxs.length > 1) { setLine = "pick a set →"; setPickable = "pick"; }
       }
     } else if (printings.byName) {
-      const p = printingOf(c.name); setLine = p ? p[1].toUpperCase() + " · " + p[2] : "";
+      const p = printingOf(c.name); if (p) { setLine = p[1].toUpperCase() + " · " + p[2]; setCode = p[1]; }
     }
-    const setKey = setPickable + setLine;
+    const setSvg = setCode && printings.sets ? (printings.sets.get(setCode) && printings.sets.get(setCode).svg) || "" : "";
+    const setKey = setPickable + "|" + setLine + "|" + setSvg;
     if (row.dataset.setKey !== setKey) {
       row.dataset.setKey = setKey;
       const cset = row.children[1].children[1];
-      cset.textContent = setLine;
-      cset.dataset.pickable = setPickable;
+      cset.toggleAttribute("data-empty", !setLine);
+      if (setPickable) cset.dataset.pickable = setPickable; else delete cset.dataset.pickable;
+      const csym = cset.children[0];
+      if (setSvg) { csym.src = setSvg; csym.hidden = false; }
+      else { csym.removeAttribute("src"); csym.hidden = true; }
+      cset.children[1].textContent = setLine;
     }
     if (row.dataset.name !== c.name || row.dataset.printingId !== (c.printing_id || "")) {
       row.dataset.name = c.name;
@@ -4166,7 +4209,7 @@ function idbGet(key) {
 function loadFpData(force) {
   if (printings.byName && !force) return Promise.resolve(printings.byName);
   if (!printings.loading) {
-    printings.loading = Promise.all([idbGet("fp_rows"), idbGet("fp_binary")]).then(([rowsRec, fpBuf]) => {
+    printings.loading = Promise.all([idbGet("fp_rows"), idbGet("fp_binary"), idbGet("set_hashes")]).then(([rowsRec, fpBuf, setHashesRec]) => {
       printings.loading = null;
       if (!rowsRec || !rowsRec.rows || !fpBuf) return printings.byName;
       const rows = rowsRec.rows;
@@ -4196,6 +4239,18 @@ function loadFpData(force) {
       printings.rowById = rowById;
       printings.bySetCol = bySetCol;
       printings.fp = new Uint8Array(fpBuf);
+      const setHashes = new Map();
+      if (setHashesRec && typeof setHashesRec === "object") {
+        for (const code of Object.keys(setHashesRec)) {
+          const b64 = setHashesRec[code];
+          if (typeof b64 !== "string") continue;
+          const bin = atob(b64);
+          const arr = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+          setHashes.set(code, arr);
+        }
+      }
+      printings.setHashes = setHashes;
       setRowHeight(true);
       return byName;
     });
@@ -4219,7 +4274,7 @@ function refreshPrintings() {
       if (m.type === "progress") { printings.fraction = m.fraction; showPrintingsInfo(); return; }
       stop();
       if (m.type === "done") {
-        printings.meta = { t: m.t, count: m.count, version: m.version };
+        printings.meta = { t: m.t, version: m.version };
         store.set(FP_META_KEY, JSON.stringify(printings.meta));
         loadFpData(true).then(resolve, resolve);
       } else reject(new Error(m.message || "download failed"));
@@ -4271,7 +4326,14 @@ function showPrintingsInfo() {
   const info = $("printingsInfo"), btn = $("refreshPrintings");
   if (busy) info.textContent = `Downloading… ${pct}%` + (m ? " The saved copy is used until this finishes." : "");
   else if (printings.error) info.textContent = `Couldn't download: ${printings.error}.` + (m ? ` Using the copy fetched ${fetchedText(m.t)}.` : "");
-  else if (m) info.textContent = `${m.count.toLocaleString()} printings (${m.version || "v1"}), fetched ${fetchedText(m.t)}.` + (Date.now() - m.t >= WEEK ? " Due for a refresh." : "");
+  else if (m) {
+    const printingsN = printings.rows ? printings.rows.length : (m.count || 0);
+    const setsN = printings.setHashes ? printings.setHashes.size : 0;
+    const counts = printingsN
+      ? `${printingsN.toLocaleString()} printings` + (setsN ? ` + ${setsN} sets` : "")
+      : "Loading…";
+    info.textContent = `${counts} (${m.version || "v1"}), fetched ${fetchedText(m.t)}.` + (Date.now() - m.t >= WEEK ? " Due for a refresh." : "");
+  }
   else info.textContent = "Not downloaded. Used to identify the set and printing of each scanned card, and needed for ManaBox export.";
   btn.disabled = busy;
   btn.textContent = busy ? "Downloading…" : m ? "Refresh" : "Download";
@@ -4302,7 +4364,8 @@ setTimeout(maybeRefreshPrintings, 8000);
 if (printings.meta) {
   const later = window.requestIdleCallback || ((f) => setTimeout(f, 300));
   later(() => loadFpData().then((map) => {
-    if (!map) { printings.meta = null; store.del(FP_META_KEY); showPrintingsInfo(); }
+    if (!map) { printings.meta = null; store.del(FP_META_KEY); }
+    showPrintingsInfo();
   }), { timeout: 2000 });
 }
 
