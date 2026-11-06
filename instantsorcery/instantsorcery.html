@@ -423,7 +423,7 @@ button:disabled { opacity: .5; cursor: default; }
 /* FP border/frame sample debug panel */
 #fpDebugMeta {
   display: none;
-  position: absolute; bottom: 44px; left: 96px; z-index: 10;
+  position: absolute; bottom: 90px; left: 140px; z-index: 10;
   pointer-events: none; flex-direction: column; gap: 2px; align-items: flex-start;
 }
 body.fpdebug #fpDebugMeta { display: flex; }
@@ -432,6 +432,7 @@ body.fpdebug #fpDebugMeta { display: flex; }
   color: rgba(255,80,80,.9); text-shadow: 0 1px 2px #000;
 }
 #fpDebugMeta canvas { display: block; image-rendering: pixelated; }
+#fpSymPreview { width: 100px; height: auto; margin-top: 3px; border: 1px solid rgba(0,220,120,.6); image-rendering: pixelated; }
 
 /* FP debug overlay — visible only when ?fpdebug is in the URL */
 #fpArtBox {
@@ -441,6 +442,34 @@ body.fpdebug #fpDebugMeta { display: flex; }
   border-radius: 3px;
 }
 body.fpdebug #fpArtBox { display: block; }
+#fpSymbolBox {
+  display: none;
+  position: absolute; box-sizing: border-box; pointer-events: none;
+  border: 2px dashed rgba(0,220,120,.9);
+  border-radius: 3px;
+}
+body.fpdebug #fpSymbolBox { display: block; }
+#fpSearchBox {
+  display: none;
+  position: absolute; box-sizing: border-box; pointer-events: none;
+  border: 2px dashed rgba(255,80,220,.9);
+  border-radius: 3px;
+}
+body.fpdebug #fpSearchBox { display: block; }
+#fpCardBox {
+  display: none;
+  position: absolute; box-sizing: border-box; pointer-events: none;
+  border: 2px solid rgba(255,200,0,.7);
+  border-radius: 2px;
+}
+body.fpdebug #fpCardBox { display: block; }
+#fpNameBox {
+  display: none;
+  position: absolute; box-sizing: border-box; pointer-events: none;
+  border: 2px dashed rgba(120,180,255,.9);
+  border-radius: 3px;
+}
+body.fpdebug #fpNameBox { display: block; }
 .fp-debug-dot {
   display: none;
   position: absolute; pointer-events: none; z-index: 20;
@@ -453,8 +482,8 @@ body.fpdebug .fp-debug-dot { display: block; }
 .fp-debug-dot.flank { background: rgba(0,210,255,.95); }
 #fpDebugPreview {
   display: none;
-  position: absolute; bottom: 44px; left: 8px; z-index: 10;
-  width: 80px; height: 112px;
+  position: absolute; bottom: 90px; left: 8px; z-index: 10;
+  width: 120px; height: auto;  /* canvas is sized to the raw capture (~592 wide); CSS downscales to ~50% of previous preview area */
   border: 1px solid rgba(255,80,80,.7);
   image-rendering: pixelated; pointer-events: none;
   background: #000;
@@ -589,7 +618,20 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
 .row.first { border-top: 0; }
 .row.fresh { animation: fresh 1.2s ease-out; }
 @keyframes fresh { from { background: color-mix(in srgb, var(--accent) 22%, transparent); } to { background: transparent; } }
-.qty { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); text-align: right; }
+.qty { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); text-align: right; cursor: pointer; user-select: none; }
+.qty:hover { color: var(--ink); }
+#qtyEdit {
+  position: absolute; display: none; z-index: 5;
+  left: 0; width: 3.2em; box-sizing: border-box;
+  padding: 0 4px; border: 0; outline: none; box-shadow: inset 0 0 0 2px var(--accent);
+  background: var(--field); color: var(--ink);
+  font: inherit; font-weight: 700; font-variant-numeric: tabular-nums;
+  text-align: right;
+  /* hide browser spin buttons */
+  -moz-appearance: textfield;
+}
+#qtyEdit::-webkit-inner-spin-button,
+#qtyEdit::-webkit-outer-spin-button { -webkit-appearance: none; }
 .cell { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 .cset { font-size: .76rem; line-height: 1.2; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cset:empty { display: none; }
@@ -749,6 +791,10 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
       <svg id="overlay" viewBox="0 0 1280 960" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
       <div class="guide-layer" id="guideLayer">
         <div id="fpArtBox"></div>
+        <div id="fpSearchBox"></div>
+        <div id="fpSymbolBox"></div>
+        <div id="fpCardBox"></div>
+        <div id="fpNameBox"></div>
         <div class="idle" id="idle">
           <button class="primary" id="startBtn" type="button">Start camera</button>
           <p>Hold a card inside this outline, with its name in the bright band.</p>
@@ -1959,6 +2005,10 @@ function lightLettering(grey, w, h, top, bottom, bar) {
 // Share of the crop that is blown-out glare: near-white in every channel.
 // Card frames, even white ones, stay well below this.
 let lastGlare = 0;
+// Title-bar rect in cardCv coords from the most recent upright prepBand call.
+// Used as a geometry fallback for set-symbol positioning when the card doesn't
+// fill the guide and findCardBoundsFromBand() returns null.
+let lastBarRect = null;
 function glareShare(d, n) {
   let g = 0;
   for (let p = 0; p < n * 4; p += 16) if (d[p] > 240 && d[p + 1] > 240 && d[p + 2] > 240) g++;
@@ -2286,6 +2336,80 @@ function prepBand(src, sx, sy, sw, sh, scale, method = 0, light = false) {
   if (nx0 >= cw) { nx0 = 0; nx1 = cw; rowTop = 0; rowBottom = ch - 1; }
   const tw = nx1 - nx0, th = rowBottom - rowTop + 1;
 
+  // Trim mana-cost columns off the right side. Mana circles are ~15% taller
+  // than the title text, so including them inflates rowBottom/rowTop and
+  // throws off card-size estimation based on text height. First gap wider
+  // than ~half the text height marks the name↔mana boundary.
+  const manaGap = Math.max(4, Math.round(th * 0.4));
+  let nameRight = nx0, g = 0;
+  for (let x = nx0; x < nx1; x++) {
+    if (colInk[x]) { nameRight = x + 1; g = 0; }
+    else if (++g > manaGap) break;
+  }
+  if (nameRight <= nx0) nameRight = nx1;
+  // Density-based row range: a row counts as text only if it has a meaningful
+  // fraction of the peak row's ink. Stops single-pixel specks (bar border
+  // lines, dust, binarization noise) from inflating the blue box beyond the
+  // actual text.
+  const rowCounts = new Uint16Array(ch);
+  let maxRowCount = 0;
+  for (let y = 0; y < ch; y++) {
+    let c = 0;
+    for (let x = nx0; x < nameRight; x++) if (ink[y * cw + x]) c++;
+    rowCounts[y] = c;
+    if (c > maxRowCount) maxRowCount = c;
+  }
+  const rowThresh = Math.max(2, maxRowCount * 0.03);
+  let nameTop = ch, nameBottom = -1;
+  for (let y = 0; y < ch; y++) {
+    if (rowCounts[y] >= rowThresh) { if (y < nameTop) nameTop = y; if (y > nameBottom) nameBottom = y; }
+  }
+  if (nameBottom < 0) { nameTop = rowTop; nameBottom = rowBottom; }
+
+  if (src === cardCv && scale === 1) {
+    // Measure the card's bounds while we still have the same cardCv snapshot
+    // the OCR just analysed — so all downstream overlays are consistent with
+    // the frame the name was read from.
+    const textLeft   = sx + left + nx0;
+    const textRight  = sx + left + nameRight;
+    const textTop    = sy + top + nameTop;
+    const textBottom = sy + top + nameBottom + 1;
+    const textH      = textBottom - textTop;
+    const textCY     = (textTop + textBottom) / 2;
+    // Card size derived from the title text height — compromise ratio that
+    // lands close for older cards (Beleren Bold ≈ 5.2% of cardH) and for
+    // newer cards (Beleren Smallcaps ≈ 4.6% of cardH).
+    //   title text left X   ≈ 8.0% in from card left
+    //   title text centre Y ≈ 5.7% below card top
+    //   MTG aspect          = 63:88
+    // Floor at a third of the camera region (cardCv height).
+    const MIN_CARD_H = CH / 3;
+    let cardH = Math.max(MIN_CARD_H, textH / 0.049);
+    let cardW = cardH * 63 / 88;
+    let cardL = textLeft - 0.08 * cardW;
+    const cardT = textCY - 0.057 * cardH;
+    lastBarRect = {
+      left:   sx + left,
+      top:    sy + top,
+      right:  sx + right,
+      bottom: sy + bottom,
+      textLeft, textRight, textTop, textBottom,
+      cardBounds: {
+        left:   Math.max(0, cardL),
+        top:    Math.max(0, cardT),
+        right:  Math.max(0, CW - (cardL + cardW)),
+        bottom: Math.max(0, CH - (cardT + cardH)),
+      },
+    };
+    if (FP_DEBUG) {
+      const nb = $("fpNameBox");
+      nb.style.left   = ((sx + left + nx0) / CW * 100).toFixed(2) + "%";
+      nb.style.top    = ((sy + top  + nameTop) / CH * 100).toFixed(2) + "%";
+      nb.style.width  = ((nameRight - nx0) / CW * 100).toFixed(2) + "%";
+      nb.style.height = ((nameBottom - nameTop + 1) / CH * 100).toFixed(2) + "%";
+    }
+  }
+
   // Write out with a white margin, which the OCR reads best. (Shrinking
   // tall text saved a few milliseconds but cost accuracy, so it isn't done.)
   const pad = Math.max(6, Math.round(th * 0.3));
@@ -2341,13 +2465,19 @@ async function ocrBand() {
 }
 
 // Upright read of the name band.
+let lastPrepMs = 0, lastOcrMs = 0; // timing breakdown for one read, for debug logging
 async function readUpright(method = 0, light = false) {
   const sx = CW * BAND.x0, sy = CH * BAND.y0;
   const sw = CW * (BAND.x1 - BAND.x0), sh = CH * (BAND.y1 - BAND.y0);
+  const tPrep = performance.now();
   const contrast = prepBand(cardCv, sx, sy, sw, sh, 1, method, light);
+  lastPrepMs = performance.now() - tPrep;
+  lastOcrMs = 0;
   if (contrast >= 0 && contrast < 30) return { text: "", match: null, empty: true };
   if (contrast < 0) return { text: "", match: null };
+  const tOcr = performance.now();
   const text = await ocrBand();
+  lastOcrMs = performance.now() - tOcr;
   return { text, match: text ? matchText(index, text) : null };
 }
 
@@ -2395,6 +2525,7 @@ const attempts = { up: 0, side: 0 };
 // so one read never does both; whichever works is kept while it keeps working.
 let sideways = false, sideDir = 1;
 let sideDirWorked = false; // the current quarter turn has read this card, so keep it
+let sidewaysMisses = 0;    // consecutive empty sideways reads; resets sideDirWorked
 // Names are dark ink on most cards but white on others (Ice Age, Alliances).
 // Until one kind has read the card in view, upright reads alternate between
 // them; once one has, it's kept for that card. The next card starts with
@@ -2419,18 +2550,12 @@ function showReading(text, cls) {
    error is logged and the loop carries on; a read that takes too long has
    its text reader shut down and replaced; and a separate check restarts the
    loop if no scan has finished for a few seconds. */
-const READ_TIMEOUT_MIN = 1000; // ms: the usual limit for one read
-let readTimes = [];            // recent read times, to allow slow phones more
-let lastTickAt = 0, watchdogTimer = null, readerRestart = null, movingSince = 0;
+const READ_TIMEOUT_MS = 250;   // hard cap on one OCR read — slow reads don't block the loop
+let readTimes = [];            // kept only for `[ocr] done`-style diagnostics
+let lastTickAt = 0, watchdogTimer = null, readerRestart = null, restartStartedAt = 0, movingSince = 0;
 let workerGeneration = 0; // incremented each time the worker is replaced
 
-// The limit for one read: 1 second, or 4 times this phone's usual read time
-// if that is longer, so a slow phone isn't cut off on every read.
-function readTimeout() {
-  if (readTimes.length < 5) return READ_TIMEOUT_MIN * 2; // the first reads warm up
-  const sorted = readTimes.slice().sort((a, b) => a - b);
-  return Math.max(READ_TIMEOUT_MIN, sorted[sorted.length >> 1] * 4);
-}
+function readTimeout() { return READ_TIMEOUT_MS; }
 function withTimeout(promise, ms) {
   let timer;
   const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("read timed out")), ms); });
@@ -2446,12 +2571,19 @@ function restartReader() {
   const old = worker;
   worker = null;
   workerGeneration++;
+  restartStartedAt = performance.now();
+  // Reset the read-time history: the fresh worker needs warm-up (first few
+  // reads are slow), and keeping the old median would force the 1s floor
+  // timeout before the new worker even finishes its first recognize() —
+  // causing an endless timeout → restart → timeout loop.
+  readTimes = [];
+  if (FP_DEBUG) console.log("[reader] restart #" + workerGeneration + " starting");
   try { if (old) old.terminate(); } catch (e) {}
   readerRestart = (async () => {
     setStatus("Restarting text reader…", "busy");
-    try { await initOcr(); if (running) setStatus("Scanning", "ok"); }
-    catch (e) { setStatus("The text reader stopped. Press Stop, then Start camera.", "err"); }
-  })().finally(() => { readerRestart = null; });
+    try { await initOcr(); if (running) setStatus("Scanning", "ok"); if (FP_DEBUG) console.log("[reader] restart #" + workerGeneration + " done in " + Math.round(performance.now() - restartStartedAt) + "ms"); }
+    catch (e) { setStatus("The text reader stopped. Press Stop, then Start camera.", "err"); console.error("[reader] restart #" + workerGeneration + " FAILED:", e); }
+  })().finally(() => { readerRestart = null; restartStartedAt = 0; });
   return readerRestart;
 }
 // Tesseract.js fires an unhandled rejection from its internal job scheduler
@@ -2461,18 +2593,32 @@ function restartReader() {
 // and restart the reader so scanning continues.
 window.addEventListener("unhandledrejection", (e) => {
   const msg = e.reason != null ? (e.reason.message || String(e.reason)) : "";
-  if (/postMessage/.test(msg)) {
+  // Tesseract's internal job queue rejects with things like "postMessage on
+  // null" after we terminate a worker mid-job. Suppress the console noise.
+  // Do NOT auto-restart here: these rejections are a *consequence* of a
+  // restart we already initiated, so re-restarting kills the fresh worker and
+  // starts an infinite restart loop. The scan loop's own timeout catches
+  // actually-stuck workers via tick() / watchdog.
+  if (/postMessage|Worker|terminated|terminate|TesseractError|job/i.test(msg)) {
     e.preventDefault();
-    if (running) restartReader();
+    if (FP_DEBUG) console.warn("Suppressed stale Tesseract rejection:", msg);
   }
 });
 function startWatchdog() {
   clearInterval(watchdogTimer);
   lastTickAt = performance.now();
   watchdogTimer = setInterval(() => {
-    if (!running || readerRestart) return;
+    if (!running) return;
+    // A restart that's taken more than 15s is almost certainly dead —
+    // release the lock and try again rather than waiting for ever.
+    if (readerRestart && restartStartedAt && performance.now() - restartStartedAt > 15000) {
+      if (FP_DEBUG) console.warn("[watchdog] restart stuck " + Math.round(performance.now() - restartStartedAt) + "ms → force release");
+      readerRestart = null;
+      restartStartedAt = 0;
+    }
+    if (readerRestart) return;
     if (performance.now() - lastTickAt > 4000) {
-      console.warn("Scan loop stalled; restarting it.");
+      if (FP_DEBUG) console.warn("[watchdog] scan loop stalled " + Math.round(performance.now() - lastTickAt) + "ms → tick restart");
       lastTickAt = performance.now();
       tick(++loopId);
     }
@@ -2490,11 +2636,14 @@ async function tick(id) {
     wait = await scanOnce(id);
   } catch (err) {
     if (err && err.message === "read timed out") {
-      // Only restart if the worker hasn't already been replaced (e.g. by the
-      // unhandledrejection handler). A stale timeout from a hanging recognize()
-      // promise fires after the restart and must not kill the new worker.
+      if (FP_DEBUG) console.warn("[scan] timeout (worker gen " + genAtStart + ", prep=" + Math.round(lastPrepMs) + " ocr=" + Math.round(lastOcrMs) + ")");
+      // Restart immediately on timeout — Tesseract has no API to cancel an
+      // in-flight recognize(), so the only way to stop the worker chewing on
+      // a stale/slow read (and to prevent the next recognize() queueing
+      // behind it) is to terminate the worker outright. Fresh worker spins
+      // up in ~150ms. Guard: don't restart if a previous timeout already did.
       if (workerGeneration === genAtStart) await restartReader();
-    } else console.error("Scan failed:", err);
+    } else console.error("[scan] failed:", err);
   }
   lastTickAt = performance.now();
   if (wait !== null && running && id === loopId) setTimeout(() => tick(id), wait);
@@ -2504,12 +2653,12 @@ async function tick(id) {
 async function scanOnce(id) {
   if (!running || id !== loopId) return null;
   if (!video.videoWidth || !index || !worker) {
-    if (!worker && !readerRestart) restartReader();
+    if (!worker && !readerRestart) { if (FP_DEBUG) console.log("[scan] no-worker → restart"); restartReader(); }
+    else if (FP_DEBUG && !video.videoWidth) console.log("[scan] no-video");
+    else if (FP_DEBUG && !index) console.log("[scan] no-index");
     return 100;
   }
-  // A camera that stopped delivering (the page went to the background, or
-  // the phone paused it) is restarted.
-  if (video.paused || video.readyState < 2) { video.play().catch(() => {}); return 200; }
+  if (video.paused || video.readyState < 2) { if (FP_DEBUG) console.log("[scan] video-paused (ready=" + video.readyState + ")"); video.play().catch(() => {}); return 200; }
 
   grabCard();
   const thumb = takeThumb();
@@ -2519,7 +2668,7 @@ async function scanOnce(id) {
   // lands, each get added. (A hand wobble changes the view by about 15-20 on
   // this measure, a card a third of the way out by about 45.)
   if (present && thumbDiff(thumb, presentThumb) > 40) {
-    if (++leftFrames >= 2) { present = null; presentThumb = null; recent = []; leftFrames = 0; sideDirWorked = false; inkLocked = false; uprightSeen = false; showFpMatchPreview(null); }
+    if (++leftFrames >= 2) { present = null; presentThumb = null; recent = []; leftFrames = 0; sideDirWorked = false; sidewaysMisses = 0; inkLocked = false; uprightSeen = false; showFpMatchPreview(null); }
   } else {
     leftFrames = 0;
   }
@@ -2547,7 +2696,10 @@ async function scanOnce(id) {
   const trySideways = sideways && $("splitToggle").checked;
   const method = attempts[trySideways ? "side" : "up"]++ % METHODS;
   const t0 = performance.now();
-  const r = await withTimeout(trySideways ? readSideways(method, sideDir) : readUpright(method, lightInk), readTimeout());
+  const ocrTimeout = readTimeout();
+  if (FP_DEBUG) console.log("[ocr] start g=" + workerGeneration + " m=" + method + " side=" + trySideways + " to=" + ocrTimeout);
+  const r = await withTimeout(trySideways ? readSideways(method, sideDir) : readUpright(method, lightInk), ocrTimeout);
+  if (FP_DEBUG) console.log("[ocr] done " + Math.round(performance.now() - t0) + "ms (prep=" + Math.round(lastPrepMs) + " ocr=" + Math.round(lastOcrMs) + ") text='" + (r.text || "") + "'" + (r.match ? " match" : r.empty ? " empty" : ""));
   const usedLight = lightInk;
   if (r.empty) { inkLocked = false; uprightSeen = false; }
   if (!trySideways && !r.empty) {
@@ -2556,7 +2708,12 @@ async function scanOnce(id) {
   }
   if (r.match) {
     sideDirWorked = trySideways;
+    sidewaysMisses = 0;
   } else if (trySideways) {
+    // Count empty-read streaks — sideDirWorked otherwise sticks true after
+    // a past sideways match and locks us into sideways mode even when the
+    // card has changed and no sideways read is landing.
+    if (r.empty && ++sidewaysMisses >= 5) { sideDirWorked = false; sidewaysMisses = 0; }
     // A miss after this quarter turn has read the card is just the method,
     // so stay sideways. Otherwise go back to upright for a read, and try the
     // other quarter turn next time.
@@ -2919,6 +3076,8 @@ const fpCv = document.createElement("canvas"); fpCv.width = FP_W; fpCv.height = 
 const fpCx = fpCv.getContext("2d", { willReadFrequently: true });
 // Debug preview canvas — null unless ?fpdebug; sized to NORM_W×NORM_H (128×178).
 let fpDebugCv = null, fpDebugCx = null;
+let fpSymPreviewCv = null, fpSymPreviewCx = null; // set in FP_DEBUG block; symbol-region crop
+let symScanCv = null, symScanCx = null;           // set in FP_DEBUG block; search-region strip
 let _metaLabel = null; // set in FP_DEBUG block; shows border/frame classification
 let _fpDots = null;   // set in FP_DEBUG block; 6 dots showing live sample locations
 
@@ -3016,15 +3175,14 @@ function computeLiveFps() {
     const rgb = InstantSorceryFP.fromRgba(FP_W, FP_H, rgba);
     fps.push(InstantSorceryFP.fingerprint({ width: FP_W, height: FP_H, rgb }, { trimPct: FP_ACTIVE_TRIM }));
     totalScale += scale;
-    // On the first variant, show the trimmed+normalised image in the debug preview.
+    // On the first variant, show the raw captured source rect in the debug
+    // preview — same aspect ratio as the slice taken from cardCv (wide ~1.37),
+    // not the FP-normalised narrow card-shape. More intuitive for lining up.
     if (FP_DEBUG && fpDebugCx && vi === 0) {
-      const FP = InstantSorceryFP;
-      const norm = FP.resizeArea(FP.trimEdges({ w: FP_W, h: FP_H, data: rgb }, FP_ACTIVE_TRIM), FP.NORM_W, FP.NORM_H);
-      const imgd = fpDebugCx.createImageData(FP.NORM_W, FP.NORM_H);
-      for (let i = 0, j = 0; i < norm.data.length; i += 3, j += 4) {
-        imgd.data[j] = norm.data[i]; imgd.data[j+1] = norm.data[i+1]; imgd.data[j+2] = norm.data[i+2]; imgd.data[j+3] = 255;
-      }
-      fpDebugCx.putImageData(imgd, 0, 0);
+      const srcY = Math.round(CH * syF), srcH = Math.round(CH * shF);
+      if (fpDebugCv.width  !== ART_SW) fpDebugCv.width  = ART_SW;
+      if (fpDebugCv.height !== srcH)   fpDebugCv.height = srcH;
+      fpDebugCx.drawImage(cardCv, ART_SX, srcY, ART_SW, srcH, 0, 0, ART_SW, srcH);
     }
   }
   return { fps, meanScale: totalScale / FP_CROP_VARIANTS.length };
@@ -3091,6 +3249,33 @@ function findCardBoundsFromBand() {
   };
 }
 
+// Scans left/right card (or sleeve) edges at an arbitrary Y centre in cardCv.
+// Reuses bandScanCv — safe to call after findCardBoundsFromBand() has returned.
+// Returns {left, right} inset pixels, or null if either edge isn't found.
+function scanEdgesAtY(yPx) {
+  const d = BAND_SCAN_D, h = BAND_SCAN_H;
+  const y0 = Math.max(0, yPx - (h >> 1));
+  bandScanCx.drawImage(cardCv, 0,     y0, d, h, 0, 0, d, h);
+  bandScanCx.drawImage(cardCv, CW - d, y0, d, h, 0, h, d, h);
+  const lPx = bandScanCx.getImageData(0, 0, d, h).data;
+  const rPx = bandScanCx.getImageData(0, h, d, h).data;
+  function gradScan(px, fromRight) {
+    const lum = new Float32Array(d);
+    for (let x = 0; x < d; x++) {
+      const sx = fromRight ? d - 1 - x : x;
+      let s = 0;
+      for (let y = 0; y < h; y++) { const i = (y * d + sx) * 4; s += 0.299*px[i] + 0.587*px[i+1] + 0.114*px[i+2]; }
+      lum[x] = s / h;
+    }
+    let maxG = 0, best = -1;
+    for (let x = 1; x < d - 1; x++) { const g = Math.abs(lum[x+1] - lum[x-1]); if (g > maxG) { maxG = g; best = x; } }
+    return maxG >= BAND_SCAN_GRAD ? best : null;
+  }
+  const left  = gradScan(lPx, false);
+  const right = gradScan(rPx, true);
+  return (left !== null && right !== null) ? { left, right } : null;
+}
+
 // Samples card border (edge midpoints) and title-bar flanks from cardCv into
 // metaSampleCv (6 GPU→GPU drawImage calls, 3 CPU readbacks from the
 // willReadFrequently canvas). Edge midpoints are used instead of corners so
@@ -3100,7 +3285,7 @@ function findCardBoundsFromBand() {
 function detectCardMeta(candidateBorders = null) {
   const sl = META_STRIP_LEN, st = META_STRIP_THICK, ci = META_INSET;
   const fw = META_FLANK_W, fh = META_FLANK_H, fx = META_FX;
-  const midCW = CW >> 1, midCH = CH >> 1, halfL = sl >> 1;
+  const halfL = sl >> 1;
 
   // Locate the card within cardCv using the name-band horizontal scan.
   // Falls back to the fixed META_INSET positions when detection fails (card flush).
@@ -3109,6 +3294,12 @@ function detectCardMeta(candidateBorders = null) {
   const botY  = (bounds ? CH - bounds.bottom        : CH) - ci - st;
   const lX    = (bounds ? bounds.left               : 0)  + ci;
   const rX    = (bounds ? CW - bounds.right         : CW) - ci - st;
+  // Midpoints of the CARD (bounds-aware) rather than of cardCv — so top/bottom
+  // strip samples land at the horizontal middle of the actual border, and
+  // left/right at the vertical middle. When bounds is null, fall back to the
+  // cardCv midpoints (card assumed to fill the frame).
+  const midCW = bounds ? ((bounds.left + CW - bounds.right)  >> 1) : (CW >> 1);
+  const midCH = bounds ? ((bounds.top  + CH - bounds.bottom) >> 1) : (CH >> 1);
   const fy    = Math.min((bounds ? bounds.top : 0) + META_FLANK_Y, CH - fh);
   const lfX   = bounds ? bounds.left : 0;
   const rfX   = bounds ? CW - bounds.right - fw : CW - fw;
@@ -3150,7 +3341,7 @@ function detectCardMeta(candidateBorders = null) {
   const frame = (fr - fb > 35 && fr > 100) ? "old" : "modern";
 
   if (FP_DEBUG && _metaLabel)
-    _metaLabel.textContent = `border:${border} (${r|0},${g|0},${b|0})\nframe:${frame} (${fr|0},${fg|0},${fb|0})\nbounds:${bounds ? `t${bounds.top} b${bounds.bottom} l${bounds.left} r${bounds.right}` : "none"}`;
+    _metaLabel.textContent = `border:${border} (${r|0},${g|0},${b|0})\nframe:${frame} (${fr|0},${fg|0},${fb|0})\nbounds:${lastBarRect ? "synth" : (bounds ? `t${bounds.top} b${bounds.bottom} l${bounds.left} r${bounds.right}` : "none")}`;
 
   if (FP_DEBUG && _fpDots) {
     const gl = $("guideLayer");
@@ -3168,6 +3359,133 @@ function detectCardMeta(candidateBorders = null) {
     dot(3, rX  + st / 2, midCH);          // right strip centre
     dot(4, lfX + fw / 2, fy + fh / 2);   // left flank centre
     dot(5, rfX + fw / 2, fy + fh / 2);   // right flank centre
+  }
+
+  if (FP_DEBUG) {
+    // Prefer bounds from the band scan; fall back to synthesising bounds from
+    // the last OCR'd title bar (bar width ≈ 90% of card width, MTG is 63:88).
+    // Only hide the boxes if we have neither.
+    // Prefer the text-anchored synth from the last OCR snapshot — it's
+    // consistent across all overlays (blue/yellow/magenta/green) and doesn't
+    // depend on the band scan picking up the card edges. Fall back to live
+    // bounds only when no OCR has succeeded yet.
+    // Yellow box: prefer the text-anchored synth from the last OCR snapshot
+    // (snapshot-consistent with the blue text box).
+    // Symbol box: prefer live bounds from the band scan — same source as the
+    // dot midpoints, so the symbol-position offset lands accurately.
+    // Fall back to whichever we have when the preferred source is missing.
+    const yellowB = lastBarRect ? lastBarRect.cardBounds : bounds;
+    const symbolB = bounds || (lastBarRect ? lastBarRect.cardBounds : null);
+    const cb = $("fpCardBox");
+    if (!yellowB) {
+      cb.style.display = "none";
+      $("fpSearchBox").style.display = "none";
+      $("fpSymbolBox").style.display = "none";
+      return { border, frame };
+    }
+    cb.style.left   = (yellowB.left / CW * 100).toFixed(2) + "%";
+    cb.style.top    = (yellowB.top  / CH * 100).toFixed(2) + "%";
+    cb.style.width  = ((CW - yellowB.left - yellowB.right)  / CW * 100).toFixed(2) + "%";
+    cb.style.height = ((CH - yellowB.top  - yellowB.bottom) / CH * 100).toFixed(2) + "%";
+    cb.style.display = "block";
+    if (!symbolB) {
+      $("fpSearchBox").style.display = "none";
+      $("fpSymbolBox").style.display = "none";
+      return { border, frame };
+    }
+    $("fpSearchBox").style.display = "";
+    $("fpSymbolBox").style.display = "";
+    // Position symbol relative to the card's midpoint (same anchor as the dots).
+    //   symbolCenterX = midX + 0.40 × cardW  (symbol centre at 90% of width)
+    //   symbolCenterY = midY + 0.085 × cardH (type line at 58.5% / 57.5% old)
+    const symXCenFrac = 0.90;
+    // Shifted down slightly from the mm-measured type-line Y — in practice the
+    // symbol lands in the lower portion of the box when centred on 0.585/0.575,
+    // so nudge the anchor down to recentre it.
+    const symYCenFrac = frame === "old" ? 0.615 : 0.625;
+    const b = symbolB;
+    const oy   = b.top;
+    const effH = CH - b.top - b.bottom;
+    const txL  = b.left;
+    const txR  = b.right;
+    const txW  = CW - txL - txR;
+    const typeLineY = Math.round(oy + symYCenFrac * effH);
+
+    // Orange search box — centred on the expected symbol position, sized as a
+    // fixed fraction of the card bounds but floored at 100×100 px so it stays
+    // large enough to see even when the yellow card box is small.
+    const SRCH_MIN = 100;
+    const srchWFrac = 0.20, srchHFrac = 0.17;
+    const srchPxW = Math.min(symScanCv.width,  Math.max(SRCH_MIN, Math.round(srchWFrac * txW)));
+    const srchPxH = Math.min(symScanCv.height, Math.max(SRCH_MIN, Math.round(srchHFrac * effH)));
+    const srchPxX = Math.round(txL + symXCenFrac * txW - srchPxW / 2);
+    const srchPxY = Math.round(oy + symYCenFrac * effH - srchPxH / 2);
+    const searchBox = $("fpSearchBox");
+    searchBox.style.left   = (srchPxX / CW * 100).toFixed(2) + "%";
+    searchBox.style.top    = (srchPxY / CH * 100).toFixed(2) + "%";
+    searchBox.style.width  = (srchPxW / CW * 100).toFixed(2) + "%";
+    searchBox.style.height = (srchPxH / CH * 100).toFixed(2) + "%";
+
+    // Read the search strip and compute per-column luminance range (max−min).
+    // Range beats variance here: outline columns crossing dark ink + light
+    // background score high even when the symbol interior fill is uniform.
+    const SH = symScanCv.height;
+    symScanCx.drawImage(cardCv, srchPxX, Math.max(0, typeLineY - (SH >> 1)), srchPxW, SH, 0, 0, srchPxW, SH);
+    const px = symScanCx.getImageData(0, 0, srchPxW, SH).data;
+    const colRange = new Float32Array(srchPxW);
+    for (let x = 0; x < srchPxW; x++) {
+      let mn = 255, mx = 0;
+      for (let y = 0; y < SH; y++) {
+        const i = (y * srchPxW + x) * 4;
+        const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+        if (lum < mn) mn = lum; if (lum > mx) mx = lum;
+      }
+      colRange[x] = mx - mn;
+    }
+
+    // Dilate to bridge the interior of the symbol (outline-only columns are sparse).
+    const WIN = 18;
+    const dilated = new Float32Array(srchPxW);
+    for (let x = 0; x < srchPxW; x++) {
+      let mx = 0;
+      const x0 = Math.max(0, x - WIN), x1 = Math.min(srchPxW - 1, x + WIN);
+      for (let xx = x0; xx <= x1; xx++) if (colRange[xx] > mx) mx = colRange[xx];
+      dilated[x] = mx;
+    }
+
+    // Adaptive threshold: 30% of the peak range in this strip, so the scan
+    // self-calibrates for lighting, sleeve glare, and symbol contrast.
+    let peakRange = 0;
+    for (let x = 0; x < srchPxW; x++) if (dilated[x] > peakRange) peakRange = dilated[x];
+    const THRESH = peakRange * 0.30, GAP = 6;
+    let foundR = -1, foundL = -1, gap = 0;
+    for (let x = srchPxW - 1; x >= 0; x--) {
+      if (dilated[x] > THRESH) { if (foundR < 0) foundR = x; gap = 0; }
+      else if (foundR >= 0 && ++gap >= GAP) { foundL = x + gap; break; }
+    }
+
+    // Green symbol crop — centred on the EXPECTED symbol position so the
+    // capture always targets the right area even if the scan above drifted
+    // to the wrong high-contrast feature. Sized to match the magenta search
+    // box: generous enough to reliably contain the symbol under modest
+    // misalignment, not a tight symbol-only crop.
+    const symPxW = srchPxW;
+    const symPxH = srchPxH;
+    const symPxX = srchPxX;
+    const symPxY = srchPxY;
+    const symBox = $("fpSymbolBox");
+    symBox.style.left   = (symPxX / CW * 100).toFixed(2) + "%";
+    symBox.style.top    = (symPxY / CH * 100).toFixed(2) + "%";
+    symBox.style.width  = (symPxW / CW * 100).toFixed(2) + "%";
+    symBox.style.height = (symPxH / CH * 100).toFixed(2) + "%";
+    if (fpSymPreviewCx && symPxW > 0 && symPxH > 0) {
+      // Match the preview canvas to the capture's actual pixel dimensions so
+      // the displayed aspect ratio equals what was captured. CSS width:200/
+      // height:auto keeps the aspect intact at a readable size.
+      if (fpSymPreviewCv.width  !== symPxW) fpSymPreviewCv.width  = symPxW;
+      if (fpSymPreviewCv.height !== symPxH) fpSymPreviewCv.height = symPxH;
+      fpSymPreviewCx.drawImage(cardCv, symPxX, symPxY, symPxW, symPxH, 0, 0, symPxW, symPxH);
+    }
   }
 
   return { border, frame };
@@ -3298,6 +3616,12 @@ if (FP_DEBUG) {
   artBox.style.top    = (Math.min(...yTops) * 100).toFixed(2) + "%";
   artBox.style.width  = (ART_SW / CW * 100).toFixed(2) + "%";
   artBox.style.height = ((Math.max(...yBots) - Math.min(...yTops)) * 100).toFixed(2) + "%";
+  // Name band — the strip read by OCR (cropNameBand uses BAND fractions).
+  const nameBox = $("fpNameBox");
+  nameBox.style.left   = (BAND.x0 * 100).toFixed(2) + "%";
+  nameBox.style.top    = (BAND.y0 * 100).toFixed(2) + "%";
+  nameBox.style.width  = ((BAND.x1 - BAND.x0) * 100).toFixed(2) + "%";
+  nameBox.style.height = ((BAND.y1 - BAND.y0) * 100).toFixed(2) + "%";
   // Live sample-location dots: yellow = border strips, cyan = frame flanks.
   // Appended to stage (not guideLayer) so positions are absolute stage pixels,
   // computed fresh each frame by detectCardMeta() from guideLayer's rendered size.
@@ -3318,7 +3642,9 @@ if (FP_DEBUG) {
   // Create a preview canvas showing the trimmed+normalised image sent to the
   // fingerprint scorer (128×178, the same NORM_W×NORM_H the builder targets).
   fpDebugCv = document.createElement("canvas");
-  fpDebugCv.width = 128; fpDebugCv.height = 178;
+  // Initial dimensions match the raw cardCv art crop (ART_SW × CH×0.49) so the
+  // displayed aspect ratio is correct before the first scan populates it.
+  fpDebugCv.width = ART_SW; fpDebugCv.height = Math.round(CH * 0.49);
   fpDebugCv.id = "fpDebugPreview";
   fpDebugCx = fpDebugCv.getContext("2d");
   stage.appendChild(fpDebugCv);
@@ -3331,6 +3657,18 @@ if (FP_DEBUG) {
   metaPanel.id = "fpDebugMeta";
   metaPanel.appendChild(_metaLabel);
   metaPanel.appendChild(metaSampleCv);
+  // Symbol-region live crop — drawn each frame in detectCardMeta().
+  fpSymPreviewCv = document.createElement("canvas");
+  // Initial dimensions match the symScanCv capture (200 × 144 — defined just
+  // below) so the aspect is correct before the first scan populates the preview.
+  fpSymPreviewCv.width = 200; fpSymPreviewCv.height = 144;
+  fpSymPreviewCv.id = "fpSymPreview";
+  fpSymPreviewCx = fpSymPreviewCv.getContext("2d");
+  metaPanel.appendChild(fpSymPreviewCv);
+  // Wider search strip for column-range symbol scan (200px wide covers any card size).
+  symScanCv = document.createElement("canvas");
+  symScanCv.width = 200; symScanCv.height = 144;
+  symScanCx = symScanCv.getContext("2d", { willReadFrequently: true });
   stage.appendChild(metaPanel);
 }
 const printings = {
@@ -3475,6 +3813,7 @@ function renderList(fresh) {
 
 // One listener for every row's − and + buttons, and the "pick a set →" hint.
 listEl.addEventListener("click", (e) => {
+  if (e.target.closest(".qty") && e.target.id !== "qtyEdit") { openQtyEdit(e.target.closest(".qty")); return; }
   const cset = e.target.closest(".cset[data-pickable='pick'], .cset[data-pickable='change']");
   if (cset) { openPrintingPicker(cset.closest(".row").dataset.name, cset.closest(".row").dataset.printingId || null); return; }
   const btn = e.target.closest("button[data-act]");
@@ -3499,6 +3838,60 @@ listEl.addEventListener("click", (e) => {
   }
   saveList();
   renderList();
+});
+
+// Inline qty editor — single shared input floated over the tapped qty cell.
+const qtyEdit = document.createElement("input");
+qtyEdit.id = "qtyEdit"; qtyEdit.type = "number"; qtyEdit.min = "0"; qtyEdit.inputMode = "numeric";
+spacer.appendChild(qtyEdit);
+
+function openQtyEdit(qtyEl) {
+  const row = qtyEl.closest(".row");
+  const name = row.dataset.name;
+  const printingId = row.dataset.printingId || null;
+  const c = cards.find((x) => x.name === name && (x.printing_id || null) === printingId);
+  if (!c) return;
+  const rowIdx = view.indexOf(c);
+  if (rowIdx < 0) return;
+  qtyEdit.value = c.qty;
+  qtyEdit.dataset.name = name;
+  qtyEdit.dataset.printingId = printingId || "";
+  qtyEdit.style.top = rowIdx * ROW_H + "px";
+  qtyEdit.style.height = ROW_H + "px";
+  qtyEdit.style.display = "block";
+  qtyEdit.focus();
+  qtyEdit.select();
+}
+
+function commitQtyEdit() {
+  const name = qtyEdit.dataset.name;
+  if (!name) return;
+  const printingId = qtyEdit.dataset.printingId || null;
+  const val = parseInt(qtyEdit.value, 10);
+  qtyEdit.dataset.name = "";
+  qtyEdit.style.display = "none";
+  const c = cards.find((x) => x.name === name && (x.printing_id || null) === printingId);
+  if (!c || isNaN(val) || val === c.qty) return;
+  if (val <= 0) {
+    const at = cards.indexOf(c);
+    const savedQty = c.qty;
+    cards.splice(at, 1);
+    showUndoToast("Removed", name, () => {
+      const existing = cards.find((x) => x.name === name && (x.printing_id || null) === printingId);
+      if (existing) existing.qty += savedQty;
+      else cards.splice(Math.min(at, cards.length), 0, { name, printing_id: printingId, qty: savedQty, added_at: c.added_at });
+      saveList(); renderList(name);
+    });
+  } else {
+    c.qty = val;
+  }
+  saveList(); renderList();
+}
+
+qtyEdit.addEventListener("blur", commitQtyEdit);
+qtyEdit.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { qtyEdit.blur(); }
+  else if (e.key === "Escape") { qtyEdit.dataset.name = ""; qtyEdit.style.display = "none"; }
 });
 
 $("searchInput").addEventListener("input", () => {
