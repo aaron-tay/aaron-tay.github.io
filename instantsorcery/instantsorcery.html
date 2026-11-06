@@ -433,6 +433,7 @@ body.fpdebug #fpDebugMeta { display: flex; }
 }
 #fpDebugMeta canvas { display: block; image-rendering: pixelated; }
 #fpSymPreview { width: 100px; height: auto; margin-top: 3px; border: 1px solid rgba(0,220,120,.6); image-rendering: pixelated; }
+#fpCardPreview { width: 80px; height: auto; margin-top: 3px; border: 1px solid rgba(255,200,0,.6); image-rendering: pixelated; }
 
 /* FP debug overlay — visible only when ?fpdebug is in the URL */
 #fpArtBox {
@@ -481,14 +482,26 @@ body.fpdebug .fp-debug-dot { display: block; }
 .fp-debug-dot.strip { background: rgba(255,220,0,.95); }
 .fp-debug-dot.flank { background: rgba(0,210,255,.95); }
 #fpDebugPreview {
-  display: none;
-  position: absolute; bottom: 90px; left: 8px; z-index: 10;
+  display: block;
   width: 120px; height: auto;  /* canvas is sized to the raw capture (~592 wide); CSS downscales to ~50% of previous preview area */
   border: 1px solid rgba(255,80,80,.7);
   image-rendering: pixelated; pointer-events: none;
   background: #000;
 }
-body.fpdebug #fpDebugPreview { display: block; }
+.fp-dbg-wrap { display: none; position: relative; }
+.fp-dbg-wrap[data-pin="stage"] { position: absolute; bottom: 90px; left: 8px; z-index: 10; pointer-events: none; }
+body.fpdebug .fp-dbg-wrap { display: inline-block; }
+body.fpdebug .fp-dbg-wrap[data-pin="stage"] { display: block; }
+body.fpdebug [data-dbg][style]::before,
+body.fpdebug .fp-dbg-wrap[data-dbg]::before {
+  content: attr(data-dbg);
+  position: absolute; top: 0; left: 0;
+  font: 700 10px/1 ui-monospace, monospace;
+  padding: 2px 3px; letter-spacing: 1px;
+  color: #fff; background: rgba(0,0,0,.65);
+  border-radius: 0 0 2px 0;
+  pointer-events: none; z-index: 1;
+}
 
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cam-dim); flex: none; align-self: center; }
 .dot.ok { background: var(--cam-ok); }
@@ -794,11 +807,11 @@ h2 .count { color: var(--muted); font-family: var(--font-ui); font-weight: 500; 
       <video id="video" playsinline muted></video>
       <svg id="overlay" viewBox="0 0 1280 960" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
       <div class="guide-layer" id="guideLayer">
-        <div id="fpArtBox"></div>
-        <div id="fpSearchBox"></div>
-        <div id="fpSymbolBox"></div>
-        <div id="fpCardBox"></div>
-        <div id="fpNameBox"></div>
+        <div id="fpArtBox"    data-dbg="ART"></div>
+        <div id="fpSearchBox" data-dbg="SCH"></div>
+        <div id="fpSymbolBox" data-dbg="SYM"></div>
+        <div id="fpCardBox"   data-dbg="CRD"></div>
+        <div id="fpNameBox"   data-dbg="NAM"></div>
         <div class="idle" id="idle">
           <button class="primary" id="startBtn" type="button">Start camera</button>
           <p>Hold a card inside this outline, with its name in the bright band.</p>
@@ -2370,12 +2383,24 @@ function prepBand(src, sx, sy, sw, sh, scale, method = 0, light = false) {
     rowCounts[y] = c;
     if (c > maxRowCount) maxRowCount = c;
   }
+  // Grow the name-row range outward from the densest row ("text spine"),
+  // stopping at the first row that drops below the threshold. The older
+  // "any row above threshold" scan happily absorbed disconnected frame
+  // lines above/below the title, inflating the NAM box.
   const rowThresh = Math.max(2, maxRowCount * 0.03);
-  let nameTop = ch, nameBottom = -1;
-  for (let y = 0; y < ch; y++) {
-    if (rowCounts[y] >= rowThresh) { if (y < nameTop) nameTop = y; if (y > nameBottom) nameBottom = y; }
+  let peakY = 0;
+  for (let y = 1; y < ch; y++) if (rowCounts[y] > rowCounts[peakY]) peakY = y;
+  let nameTop = peakY, nameBottom = peakY;
+  if (rowCounts[peakY] >= rowThresh) {
+    for (let y = peakY - 1; y >= 0; y--) {
+      if (rowCounts[y] >= rowThresh) nameTop = y; else break;
+    }
+    for (let y = peakY + 1; y < ch; y++) {
+      if (rowCounts[y] >= rowThresh) nameBottom = y; else break;
+    }
+  } else {
+    nameTop = rowTop; nameBottom = rowBottom;
   }
-  if (nameBottom < 0) { nameTop = rowTop; nameBottom = rowBottom; }
 
   if (src === cardCv && scale === 1) {
     // Measure the card's bounds while we still have the same cardCv snapshot
@@ -2405,6 +2430,7 @@ function prepBand(src, sx, sy, sw, sh, scale, method = 0, light = false) {
       right:  sx + right,
       bottom: sy + bottom,
       textLeft, textRight, textTop, textBottom,
+      capturedAt: Date.now(),
       cardBounds: {
         left:   Math.max(0, cardL),
         top:    Math.max(0, cardT),
@@ -3088,6 +3114,7 @@ const fpCx = fpCv.getContext("2d", { willReadFrequently: true });
 // Debug preview canvas — null unless ?fpdebug; sized to NORM_W×NORM_H (128×178).
 let fpDebugCv = null, fpDebugCx = null;
 let fpSymPreviewCv = null, fpSymPreviewCx = null; // set in FP_DEBUG block; symbol-region crop
+let cardPreviewCv = null, cardPreviewCx = null;   // set in FP_DEBUG block; snapshot of cardCv used for CRD
 let symScanCv = null, symScanCx = null;           // set in FP_DEBUG block; search-region strip
 let _metaLabel = null; // set in FP_DEBUG block; shows border/frame classification
 let _fpDots = null;   // set in FP_DEBUG block; 6 dots showing live sample locations
@@ -3109,8 +3136,12 @@ function showFpMatchPreview(id) {
 }
 // Art-box crop variants: slight vertical offsets to compensate for the live
 // crop not perfectly matching Scryfall's tight art_crop boundary.
-// Each entry is [top_frac, height_frac] relative to CH.
-const ART_SX = Math.round(CW * 0.03), ART_SW = Math.round(CW * 0.94);
+// All fractions are of the DETECTED CARD rectangle (CRD), not of cardCv:
+//   ART_X_FRAC / ART_W_FRAC — horizontal slice of the card
+//   FP_CROP_VARIANTS        — [y_frac, h_frac] of the card for each variant
+// When CRD isn't available, computeLiveFps falls back to treating these as
+// fractions of CW/CH (i.e. the guide outline) so FP still runs.
+const ART_X_FRAC = 0.03, ART_W_FRAC = 0.94;
 const FP_CROP_VARIANTS = [[0.06, 0.47], [0.08, 0.48], [0.10, 0.49], [0.08, 0.51]];
 
 // Border/frame sampling regions.
@@ -3145,6 +3176,16 @@ bandScanCv.width  = BAND_SCAN_D;
 bandScanCv.height = BAND_SCAN_H * 2;
 const bandScanCx  = bandScanCv.getContext("2d", { willReadFrequently: true });
 
+// Vertical strip used by findCardTopY() to measure the card's actual top edge.
+// Narrow and tall; scanned by row-gradient the same way the horizontal scan
+// uses column-gradient. Height covers the plausible top-edge range.
+const TOP_SCAN_W = 24;
+const TOP_SCAN_H = Math.min(CH, Math.round(CH * 0.14));
+const topScanCv  = document.createElement("canvas");
+topScanCv.width  = TOP_SCAN_W;
+topScanCv.height = TOP_SCAN_H;
+const topScanCx  = topScanCv.getContext("2d", { willReadFrequently: true });
+
 // Target mean luminance for art-crop normalisation (~midpoint; tunable via eval).
 const FP_LUM_TARGET = 128;
 
@@ -3175,26 +3216,30 @@ function lumNorm(rgba) {
 
 // Returns one fingerprint per crop variant from the current cardCv frame,
 // plus the mean luminance-correction scale across variants (>1 = dark scene).
+// Art rect is derived from CRD (live card bounds) when detectable, so FP
+// samples the real artwork regardless of where the user holds the card in
+// the guide. Falls back to the whole guide outline if bounds aren't found.
 function computeLiveFps() {
+  const bounds = resolveCardBounds();
+  const cardL = bounds ? bounds.left : 0;
+  const cardT = bounds ? bounds.top  : 0;
+  const cardW = bounds ? CW - bounds.left - bounds.right  : CW;
+  const cardH = bounds ? CH - bounds.top  - bounds.bottom : CH;
+  const artX  = Math.round(cardL + cardW * ART_X_FRAC);
+  const artW  = Math.round(cardW * ART_W_FRAC);
+
   const fps = [];
   let totalScale = 0;
   for (let vi = 0; vi < FP_CROP_VARIANTS.length; vi++) {
     const [syF, shF] = FP_CROP_VARIANTS[vi];
-    fpCx.drawImage(cardCv, ART_SX, Math.round(CH * syF), ART_SW, Math.round(CH * shF), 0, 0, FP_W, FP_H);
+    const artY = Math.round(cardT + cardH * syF);
+    const artH = Math.round(cardH * shF);
+    fpCx.drawImage(cardCv, artX, artY, artW, artH, 0, 0, FP_W, FP_H);
     const d = fpCx.getImageData(0, 0, FP_W, FP_H);
     const { rgba, scale } = lumNorm(d.data);
     const rgb = InstantSorceryFP.fromRgba(FP_W, FP_H, rgba);
     fps.push(InstantSorceryFP.fingerprint({ width: FP_W, height: FP_H, rgb }, { trimPct: FP_ACTIVE_TRIM }));
     totalScale += scale;
-    // On the first variant, show the raw captured source rect in the debug
-    // preview — same aspect ratio as the slice taken from cardCv (wide ~1.37),
-    // not the FP-normalised narrow card-shape. More intuitive for lining up.
-    if (FP_DEBUG && fpDebugCx && vi === 0) {
-      const srcY = Math.round(CH * syF), srcH = Math.round(CH * shF);
-      if (fpDebugCv.width  !== ART_SW) fpDebugCv.width  = ART_SW;
-      if (fpDebugCv.height !== srcH)   fpDebugCv.height = srcH;
-      fpDebugCx.drawImage(cardCv, ART_SX, srcY, ART_SW, srcH, 0, 0, ART_SW, srcH);
-    }
   }
   return { fps, meanScale: totalScale / FP_CROP_VARIANTS.length };
 }
@@ -3209,48 +3254,63 @@ function bestVariantScore(fps, rec, colourWeight) {
 
 // Derives the card bounding box by scanning horizontally at the name-band centre —
 // the y level where we KNOW the card is present because OCR fired successfully.
-// Two strips (left edge + right edge) give cardWidth; the 63:88 aspect ratio
-// projects that to cardHeight and then to all four insets.
 // Returns {top, bottom, left, right} inset pixels, or null if detection fails.
+//
+// Attempts two strategies in order:
+//   1) Outer-edge scan — first inward local-peak gradient. Accurate when the
+//      card border contrasts with the background (most light and modern-
+//      framed cards).
+//   2) Name-box anchor — fallback for dark cards where the border blends
+//      into the background. Finds the dark→bright transitions at the white
+//      name-box edges and divides out the known BAND.x fractions to recover
+//      cardWidth. Error-sensitive (divides by 0.92), so only used when
+//      edge-scan can't lock on.
 function findCardBoundsFromBand() {
   const d = BAND_SCAN_D, h = BAND_SCAN_H, bcy = BAND_CENTER_Y;
-  // Copy left strip (x=0..d) and right strip (x=CW-d..CW) at name-band y.
   bandScanCx.drawImage(cardCv, 0,    bcy - (h>>1), d, h,  0, 0, d, h);
   bandScanCx.drawImage(cardCv, CW-d, bcy - (h>>1), d, h,  0, h, d, h);
   const lPx = bandScanCx.getImageData(0, 0, d, h).data;
   const rPx = bandScanCx.getImageData(0, h, d, h).data;
 
-  // Average luminance per column, outer-to-inner order.
-  // fromRight=true reverses so column 0 = outermost right edge.
-  function scanCols(px, fromRight) {
-    const lum = new Float32Array(d);
-    for (let x = 0; x < d; x++) {
-      const sx = fromRight ? d - 1 - x : x;
-      let s = 0;
-      for (let y = 0; y < h; y++) {
-        const i = (y * d + sx) * 4;
-        s += 0.299 * px[i] + 0.587 * px[i+1] + 0.114 * px[i+2];
-      }
-      lum[x] = s / h;
-    }
-    let maxG = 0, best = -1;
-    for (let x = 1; x < d - 1; x++) {
-      const g = Math.abs(lum[x+1] - lum[x-1]);
-      if (g > maxG) { maxG = g; best = x; }
-    }
-    return maxG >= BAND_SCAN_GRAD ? best : null;
-  }
+  const lumLeft  = columnLum(lPx, d, h, false);
+  const lumRight = columnLum(rPx, d, h, true);
 
-  const leftInset  = scanCols(lPx, false);
-  const rightInset = scanCols(rPx, true);
-  if (leftInset === null || rightInset === null) return null;
+  // Attempt 1: outer-edge scan.
+  let leftInset  = firstEdgePeak(lumLeft);
+  let rightInset = firstEdgePeak(lumRight);
+
+  // Attempt 2: name-box anchor when the edge scan can't find both edges.
+  if (leftInset === null || rightInset === null) {
+    const nbLeft  = firstRisePeak(lumLeft);
+    const nbRight = firstRisePeak(lumRight);
+    if (nbLeft !== null && nbRight !== null) {
+      const nameL = nbLeft;
+      const nameR = CW - nbRight;
+      const nameW = nameR - nameL;
+      const estCardW = nameW / (BAND.x1 - BAND.x0);
+      if (nameW > CW * 0.30 && estCardW <= CW * 1.02) {
+        const cardL = nameL - BAND.x0 * estCardW;
+        const cardR = cardL + estCardW;
+        leftInset  = Math.max(0, Math.round(cardL));
+        rightInset = Math.max(0, Math.round(CW - cardR));
+      }
+    }
+    if (leftInset === null || rightInset === null) return null;
+  }
 
   const cardW = CW - leftInset - rightInset;
   if (cardW < CW * 0.3) return null; // implausibly small
 
+  // cardH is always derived from cardW via the real MTG aspect (63:88) —
+  // physical cards don't deviate, so this acts as a sanity anchor.
+  // cardTop comes from a direct vertical scan when possible (robust to the
+  // user holding the card slightly offset); the band-fraction formula is the
+  // fallback when no clear background→border transition is detected.
   const cardH    = Math.round(cardW * 88 / 63);
-  const bandFrac = (BAND.y0 + BAND.y1) / 2; // name-band centre as fraction of card height
-  const cardTop  = Math.round(bcy - bandFrac * cardH);
+  const xCentre  = (leftInset + (CW - rightInset)) >> 1;
+  const topY     = findCardTopY(xCentre);
+  const bandFrac = (BAND.y0 + BAND.y1) / 2;
+  const cardTop  = topY !== null ? topY : Math.round(bcy - bandFrac * cardH);
 
   return {
     top:    Math.max(0, cardTop),
@@ -3258,6 +3318,112 @@ function findCardBoundsFromBand() {
     left:   leftInset,
     right:  rightInset,
   };
+}
+
+// Vertical row-gradient scan at the card's horizontal centre. Returns the
+// first inward local-peak gradient — the outer card edge. Local-peak
+// requirement rejects edge-of-frame noise and dark-card low-contrast ramps.
+function findCardTopY(xCentre) {
+  const w = TOP_SCAN_W, h = TOP_SCAN_H;
+  const sx = Math.max(0, Math.min(CW - w, xCentre - (w >> 1)));
+  topScanCx.drawImage(cardCv, sx, 0, w, h, 0, 0, w, h);
+  const px = topScanCx.getImageData(0, 0, w, h).data;
+  const lum = new Float32Array(h);
+  for (let y = 0; y < h; y++) {
+    let s = 0;
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      s += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+    }
+    lum[y] = s / w;
+  }
+  return firstEdgePeak(lum);
+}
+
+// Max staleness for the OCR-text-anchored card-bounds fallback (ms).
+// Band scan runs every detectCardMeta tick; OCR runs less often. If OCR
+// hasn't fired within this window, we refuse the fallback so drift stays
+// bounded. ~500 ms is roughly 5 scan frames — short enough that the card
+// can't have moved far, long enough that most "scan failed" frames can
+// still show a CRD.
+const CARD_BOUNDS_FALLBACK_MS = 500;
+
+// Band-scan with OCR-text fallback. Rejects the scan result when it implies
+// a card filling >96 % of cardCv (almost always means it latched onto noise
+// instead of a real edge). Returns null if neither source is available.
+function resolveCardBounds() {
+  let b = findCardBoundsFromBand();
+  if (b && (CW - b.left - b.right) > CW * 0.96) b = null;
+  if (b) return b;
+  if (lastBarRect && Date.now() - lastBarRect.capturedAt < CARD_BOUNDS_FALLBACK_MS) {
+    return lastBarRect.cardBounds;
+  }
+  return null;
+}
+
+// Per-column mean luminance over a d×h RGBA strip. fromRight reverses so
+// column 0 of the returned array is the outermost right column of the strip.
+function columnLum(px, d, h, fromRight) {
+  const lum = new Float32Array(d);
+  for (let x = 0; x < d; x++) {
+    const sx = fromRight ? d - 1 - x : x;
+    let s = 0;
+    for (let y = 0; y < h; y++) {
+      const i = (y * d + sx) * 4;
+      s += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+    }
+    lum[x] = s / h;
+  }
+  return lum;
+}
+
+// Signed version of firstEdgePeak used to anchor the card on its WHITE NAME
+// BOX. Returns the first inward position where:
+//   • the signed gradient (lum[i+1] − lum[i−1]) is a local maximum above
+//     threshold (dark→bright transition);
+//   • the window of pixels immediately BEFORE the rise is clearly darker
+//     than the pixels after it (so this is a dark-region→bright transition,
+//     not the outer edge of a white-border card bleeding from background
+//     straight into a bright frame).
+// The dark-preamble requirement is what distinguishes a black-bordered card
+// (background → black border → white name box: dark region before rise) from
+// a white-bordered card (background → white border → white name box: bright
+// region before rise). White-border cards return null so the edge-scan
+// fallback handles them, since the two sources would otherwise disagree on
+// what "nameBoxLeft" means.
+const RISE_DARK_WINDOW = 6;
+const RISE_PRE_MAX_LUM = 110;
+function firstRisePeak(lum) {
+  const n = lum.length;
+  for (let i = 2; i < n - 2; i++) {
+    const gPrev = lum[i]     - lum[i - 2];
+    const g     = lum[i + 1] - lum[i - 1];
+    const gNext = lum[i + 2] - lum[i];
+    if (!(g >= BAND_SCAN_GRAD && g > gPrev && g > gNext)) continue;
+    // Require a dark region just before the rise.
+    const w = Math.min(RISE_DARK_WINDOW, i - 1);
+    if (w <= 0) continue;
+    let sum = 0;
+    for (let k = i - w; k < i; k++) sum += lum[k];
+    if (sum / w <= RISE_PRE_MAX_LUM) return i;
+  }
+  return null;
+}
+
+// Walks the gradient of `lum` from index 0 inward, returning the first
+// position where the gradient is a LOCAL MAXIMUM above the threshold. A
+// strict peak-not-plateau check rules out monotonic ramps from vignetting or
+// soft background shadows, which otherwise clear a plain threshold while the
+// true card edge comes later. Null if nothing qualifies.
+function firstEdgePeak(lum) {
+  const n = lum.length;
+  for (let i = 2; i < n - 2; i++) {
+    const gPrev = Math.abs(lum[i]     - lum[i - 2]);
+    const g     = Math.abs(lum[i + 1] - lum[i - 1]);
+    const gNext = Math.abs(lum[i + 2] - lum[i]);
+    if (g >= BAND_SCAN_GRAD && g > gPrev && g > gNext) return i;
+  }
+  return null;
 }
 
 // Scans left/right card (or sleeve) edges at an arbitrary Y centre in cardCv.
@@ -3278,9 +3444,7 @@ function scanEdgesAtY(yPx) {
       for (let y = 0; y < h; y++) { const i = (y * d + sx) * 4; s += 0.299*px[i] + 0.587*px[i+1] + 0.114*px[i+2]; }
       lum[x] = s / h;
     }
-    let maxG = 0, best = -1;
-    for (let x = 1; x < d - 1; x++) { const g = Math.abs(lum[x+1] - lum[x-1]); if (g > maxG) { maxG = g; best = x; } }
-    return maxG >= BAND_SCAN_GRAD ? best : null;
+    return firstEdgePeak(lum);
   }
   const left  = gradScan(lPx, false);
   const right = gradScan(rPx, true);
@@ -3298,9 +3462,21 @@ function detectCardMeta(candidateBorders = null) {
   const fw = META_FLANK_W, fh = META_FLANK_H, fx = META_FX;
   const halfL = sl >> 1;
 
-  // Locate the card within cardCv using the name-band horizontal scan.
-  // Falls back to the fixed META_INSET positions when detection fails (card flush).
-  const bounds = findCardBoundsFromBand();
+  // Locate the card within cardCv using the name-band horizontal scan, with
+  // an OCR-text-anchored fallback (resolveCardBounds) for dark cards whose
+  // low-contrast edges the band scan can't lock onto.
+  const bounds = resolveCardBounds();
+  if (FP_DEBUG && cardPreviewCx) {
+    if (bounds) {
+      const cw = Math.max(1, CW - bounds.left - bounds.right);
+      const ch = Math.max(1, CH - bounds.top  - bounds.bottom);
+      if (cardPreviewCv.width !== cw)  cardPreviewCv.width  = cw;
+      if (cardPreviewCv.height !== ch) cardPreviewCv.height = ch;
+      cardPreviewCx.drawImage(cardCv, bounds.left, bounds.top, cw, ch, 0, 0, cw, ch);
+    } else {
+      cardPreviewCx.clearRect(0, 0, cardPreviewCv.width, cardPreviewCv.height);
+    }
+  }
   const topY  = (bounds ? bounds.top               : 0)  + ci;
   const botY  = (bounds ? CH - bounds.bottom        : CH) - ci - st;
   const lX    = (bounds ? bounds.left               : 0)  + ci;
@@ -3380,16 +3556,16 @@ function detectCardMeta(candidateBorders = null) {
     // consistent across all overlays (blue/yellow/magenta/green) and doesn't
     // depend on the band scan picking up the card edges. Fall back to live
     // bounds only when no OCR has succeeded yet.
-    // Yellow box: prefer the text-anchored synth from the last OCR snapshot
-    // (snapshot-consistent with the blue text box).
-    // Symbol box: prefer live bounds from the band scan — same source as the
-    // dot midpoints, so the symbol-position offset lands accurately.
-    // Fall back to whichever we have when the preferred source is missing.
-    const yellowB = lastBarRect ? lastBarRect.cardBounds : bounds;
-    const symbolB = bounds || (lastBarRect ? lastBarRect.cardBounds : null);
+    // Every overlay uses the same per-frame source as the dots: live bounds
+    // from this tick's band scan. Keeps CRD, SYM, SCH and the dots all
+    // referring to the same instant so they can't drift apart.
+    const yellowB = bounds;
+    const symbolB = bounds;
     const cb = $("fpCardBox");
+    const ab = $("fpArtBox");
     if (!yellowB) {
       cb.style.display = "none";
+      ab.style.display = "none";
       $("fpSearchBox").style.display = "none";
       $("fpSymbolBox").style.display = "none";
       return { border, frame };
@@ -3399,6 +3575,30 @@ function detectCardMeta(candidateBorders = null) {
     cb.style.width  = ((CW - yellowB.left - yellowB.right)  / CW * 100).toFixed(2) + "%";
     cb.style.height = ((CH - yellowB.top  - yellowB.bottom) / CH * 100).toFixed(2) + "%";
     cb.style.display = "block";
+    // ART box: envelope of all FP_CROP_VARIANTS slices within the detected card.
+    const cardWpx = CW - yellowB.left - yellowB.right;
+    const cardHpx = CH - yellowB.top  - yellowB.bottom;
+    const yTopF = Math.min(...FP_CROP_VARIANTS.map(([y]) => y));
+    const yBotF = Math.max(...FP_CROP_VARIANTS.map(([y, h]) => y + h));
+    ab.style.left   = ((yellowB.left + cardWpx * ART_X_FRAC) / CW * 100).toFixed(2) + "%";
+    ab.style.top    = ((yellowB.top  + cardHpx * yTopF)      / CH * 100).toFixed(2) + "%";
+    ab.style.width  = ((cardWpx * ART_W_FRAC)                / CW * 100).toFixed(2) + "%";
+    ab.style.height = ((cardHpx * (yBotF - yTopF))           / CH * 100).toFixed(2) + "%";
+    ab.style.display = "block";
+    // FPP preview: snapshot the art rect using the first FP crop variant, from
+    // the SAME cardCv/bounds instant as CRD. (The FP matcher may later compute
+    // its own rect inside computeLiveFps — that's fine; the preview here just
+    // shows the user what the art slice looks like each frame.)
+    if (fpDebugCx) {
+      const [syF0, shF0] = FP_CROP_VARIANTS[0];
+      const artX = Math.round(yellowB.left + cardWpx * ART_X_FRAC);
+      const artY = Math.round(yellowB.top  + cardHpx * syF0);
+      const artW = Math.round(cardWpx * ART_W_FRAC);
+      const artH = Math.round(cardHpx * shF0);
+      if (fpDebugCv.width  !== artW) fpDebugCv.width  = artW;
+      if (fpDebugCv.height !== artH) fpDebugCv.height = artH;
+      fpDebugCx.drawImage(cardCv, artX, artY, artW, artH, 0, 0, artW, artH);
+    }
     if (!symbolB) {
       $("fpSearchBox").style.display = "none";
       $("fpSymbolBox").style.display = "none";
@@ -3407,13 +3607,13 @@ function detectCardMeta(candidateBorders = null) {
     $("fpSearchBox").style.display = "";
     $("fpSymbolBox").style.display = "";
     // Position symbol relative to the card's midpoint (same anchor as the dots).
-    //   symbolCenterX = midX + 0.40 × cardW  (symbol centre at 90% of width)
-    //   symbolCenterY = midY + 0.085 × cardH (type line at 58.5% / 57.5% old)
-    const symXCenFrac = 0.90;
+    //   symbolCenterX = midX + 0.42 × cardW  (symbol centre at 92% of width)
+    //   symbolCenterY = midY + 0.065 × cardH (type line at 56.5% / 55.5% old)
+    const symXCenFrac = 0.92;
     // Shifted down slightly from the mm-measured type-line Y — in practice the
     // symbol lands in the lower portion of the box when centred on 0.585/0.575,
     // so nudge the anchor down to recentre it.
-    const symYCenFrac = frame === "old" ? 0.615 : 0.625;
+    const symYCenFrac = frame === "old" ? 0.595 : 0.605;
     const b = symbolB;
     const oy   = b.top;
     const effH = CH - b.top - b.bottom;
@@ -3619,14 +3819,7 @@ const FP_META_KEY = "cns.fp.meta." + FP_ACTIVE_VER; // version-scoped so IDB slo
 // preview of the image that goes into the fingerprint.
 if (FP_DEBUG) {
   document.body.classList.add("fpdebug");
-  // Position the art-crop box relative to guideLayer (which maps 1:1 to the card).
-  const yTops = FP_CROP_VARIANTS.map(([y]) => y);
-  const yBots = FP_CROP_VARIANTS.map(([y, h]) => y + h);
-  const artBox = $("fpArtBox");
-  artBox.style.left   = (ART_SX / CW * 100).toFixed(2) + "%";
-  artBox.style.top    = (Math.min(...yTops) * 100).toFixed(2) + "%";
-  artBox.style.width  = (ART_SW / CW * 100).toFixed(2) + "%";
-  artBox.style.height = ((Math.max(...yBots) - Math.min(...yTops)) * 100).toFixed(2) + "%";
+  // The art-crop box is positioned per frame from CRD in detectCardMeta().
   // Name band — the strip read by OCR (cropNameBand uses BAND fractions).
   const nameBox = $("fpNameBox");
   nameBox.style.left   = (BAND.x0 * 100).toFixed(2) + "%";
@@ -3653,12 +3846,17 @@ if (FP_DEBUG) {
   // Create a preview canvas showing the trimmed+normalised image sent to the
   // fingerprint scorer (128×178, the same NORM_W×NORM_H the builder targets).
   fpDebugCv = document.createElement("canvas");
-  // Initial dimensions match the raw cardCv art crop (ART_SW × CH×0.49) so the
+  // Initial dimensions match a rough card-art crop (CW×0.94 × CH×0.49) so the
   // displayed aspect ratio is correct before the first scan populates it.
-  fpDebugCv.width = ART_SW; fpDebugCv.height = Math.round(CH * 0.49);
+  fpDebugCv.width = Math.round(CW * ART_W_FRAC); fpDebugCv.height = Math.round(CH * 0.49);
   fpDebugCv.id = "fpDebugPreview";
   fpDebugCx = fpDebugCv.getContext("2d");
-  stage.appendChild(fpDebugCv);
+  const fpDebugWrap = document.createElement("div");
+  fpDebugWrap.className = "fp-dbg-wrap";
+  fpDebugWrap.dataset.dbg = "FPP";
+  fpDebugWrap.dataset.pin = "stage";
+  fpDebugWrap.appendChild(fpDebugCv);
+  stage.appendChild(fpDebugWrap);
   // Meta panel: shows corner patches (border) and title-bar flanks (frame era).
   // metaSampleCv is already the sampling canvas — reuse it as the display canvas.
   _metaLabel = document.createElement("span");
@@ -3667,7 +3865,11 @@ if (FP_DEBUG) {
   const metaPanel = document.createElement("div");
   metaPanel.id = "fpDebugMeta";
   metaPanel.appendChild(_metaLabel);
-  metaPanel.appendChild(metaSampleCv);
+  const metaWrap = document.createElement("span");
+  metaWrap.className = "fp-dbg-wrap";
+  metaWrap.dataset.dbg = "MET";
+  metaWrap.appendChild(metaSampleCv);
+  metaPanel.appendChild(metaWrap);
   // Symbol-region live crop — drawn each frame in detectCardMeta().
   fpSymPreviewCv = document.createElement("canvas");
   // Initial dimensions match the symScanCv capture (200 × 144 — defined just
@@ -3675,7 +3877,22 @@ if (FP_DEBUG) {
   fpSymPreviewCv.width = 200; fpSymPreviewCv.height = 144;
   fpSymPreviewCv.id = "fpSymPreview";
   fpSymPreviewCx = fpSymPreviewCv.getContext("2d");
-  metaPanel.appendChild(fpSymPreviewCv);
+  const symWrap = document.createElement("span");
+  symWrap.className = "fp-dbg-wrap";
+  symWrap.dataset.dbg = "SMP";
+  symWrap.appendChild(fpSymPreviewCv);
+  metaPanel.appendChild(symWrap);
+  // Card snapshot used for CRD: copy of cardCv taken at the same instant
+  // findCardBoundsFromBand() runs, so you can line it up with CRD visually.
+  cardPreviewCv = document.createElement("canvas");
+  cardPreviewCv.width = CW; cardPreviewCv.height = CH;
+  cardPreviewCv.id = "fpCardPreview";
+  cardPreviewCx = cardPreviewCv.getContext("2d");
+  const cardWrap = document.createElement("span");
+  cardWrap.className = "fp-dbg-wrap";
+  cardWrap.dataset.dbg = "CPV";
+  cardWrap.appendChild(cardPreviewCv);
+  metaPanel.appendChild(cardWrap);
   // Wider search strip for column-range symbol scan (200px wide covers any card size).
   symScanCv = document.createElement("canvas");
   symScanCv.width = 200; symScanCv.height = 144;
