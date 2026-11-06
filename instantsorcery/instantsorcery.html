@@ -1889,10 +1889,12 @@ const bandCx = bandCv.getContext("2d", { willReadFrequently: true });
 const thumbCv = document.createElement("canvas"); thumbCv.width = 24; thumbCv.height = 34;
 const thumbCx = thumbCv.getContext("2d", { willReadFrequently: true });
 
+let _cardCvGen = 0;
 function grabCard() {
   const vw = video.videoWidth, vh = video.videoHeight;
   const g = guideRect(vw, vh);
   cardCx.drawImage(video, g.x, g.y, g.w, g.h, 0, 0, CW, CH);
+  _cardCvGen++;
 }
 
 function takeThumb() {
@@ -3351,14 +3353,21 @@ const CARD_BOUNDS_FALLBACK_MS = 500;
 // Band-scan with OCR-text fallback. Rejects the scan result when it implies
 // a card filling >96 % of cardCv (almost always means it latched onto noise
 // instead of a real edge). Returns null if neither source is available.
+//
+// Result is memoised by the cardCv generation counter, so two callers in the
+// same tick (detectCardMeta + computeLiveFps on OCR match frames) only run
+// the band scan once.
+let _boundsGen = -1, _boundsCached = null;
 function resolveCardBounds() {
+  if (_boundsGen === _cardCvGen) return _boundsCached;
   let b = findCardBoundsFromBand();
   if (b && (CW - b.left - b.right) > CW * 0.96) b = null;
-  if (b) return b;
-  if (lastBarRect && Date.now() - lastBarRect.capturedAt < CARD_BOUNDS_FALLBACK_MS) {
-    return lastBarRect.cardBounds;
+  if (!b && lastBarRect && Date.now() - lastBarRect.capturedAt < CARD_BOUNDS_FALLBACK_MS) {
+    b = lastBarRect.cardBounds;
   }
-  return null;
+  _boundsGen = _cardCvGen;
+  _boundsCached = b;
+  return b;
 }
 
 // Per-column mean luminance over a d×h RGBA strip. fromRight reverses so
