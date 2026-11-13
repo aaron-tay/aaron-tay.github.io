@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<!--
+  poopy-birdy-os custom HTML5 export shell
+  ----------------------------------------
+  Replaces Godot's default shell. Preserves every $GODOT_* placeholder
+  the engine substitutes during export (Engine loader URL, project
+  name, head include, engine config JSON). Renders a branded splash
+  overlay that drives off the Engine's onProgress / onPrintError /
+  startGame()-promise callbacks and hides itself the moment the
+  engine starts.
+-->
+<html lang="en">
+  <head>
+    <script src="coi-serviceworker.min.js"></script>
+    <meta charset="utf-8" />
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+    <title>Poopy Birdy v0.2</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Poopy Birdy" />
+    <meta name="theme-color" content="#0f380f" />
+    <link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
+<link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
+
+    <style>
+      :root {
+        --gb-lightest: #9bbc0f;
+        --gb-light: #8bac0f;
+        --gb-dark: #306230;
+        --gb-darkest: #0f380f;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: var(--gb-lightest);
+        color: var(--gb-darkest);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      canvas {
+        display: block;
+        margin: 0;
+        padding: 0;
+        background: var(--gb-lightest);
+        outline: none;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+      }
+      /* Splash overlay sits above the canvas. We hide via display:none
+         (not opacity/visibility) once the engine reports started so
+         there's no perceptible flash. */
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        background: var(--gb-lightest);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        padding: 16px;
+        box-sizing: border-box;
+      }
+      #splash-image {
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+        /* Splash PNG is 240x135; scale up by 2x for sharper pixels on
+           typical displays without overflowing small viewports. */
+        width: min(80vw, 480px);
+        height: auto;
+      }
+      #splash-progress-track {
+        width: min(60vw, 360px);
+        height: 12px;
+        background: var(--gb-light);
+        border: 2px solid var(--gb-darkest);
+        box-sizing: content-box;
+        image-rendering: pixelated;
+      }
+      #splash-progress-bar {
+        width: 0%;
+        height: 100%;
+        background: var(--gb-darkest);
+        transition: width 120ms linear;
+      }
+      #splash-status {
+        font-size: 14px;
+        letter-spacing: 0.05em;
+        color: var(--gb-darkest);
+        min-height: 1em;
+      }
+      /* Error state — surfaced when the engine fails to start or no
+         progress is reported within the timeout. */
+      #splash.error #splash-progress-track { display: none; }
+      #splash-error {
+        display: none;
+        max-width: min(80vw, 560px);
+        color: var(--gb-darkest);
+        font-size: 14px;
+        line-height: 1.4;
+        text-align: center;
+      }
+      #splash.error #splash-error { display: block; }
+      #splash-error details {
+        margin-top: 8px;
+        text-align: left;
+        background: var(--gb-light);
+        border: 2px solid var(--gb-darkest);
+        padding: 8px;
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      #splash-error summary {
+        cursor: pointer;
+        font-weight: bold;
+      }
+      /* Fullscreen toggle — visible only when the page is not running as an
+         installed PWA (display-mode: standalone) and not already fullscreen.
+         Sits at z-index 5 so the splash overlay (z-index 10) covers it
+         until the engine starts. Styled to match the GB DMG palette and the
+         splash overlay's 2-px DARKEST border convention. */
+      #fullscreen-btn {
+        position: fixed;
+        top: 8px;
+        right: 8px;
+        z-index: 5;
+        width: 40px;
+        height: 40px;
+        padding: 6px;
+        margin: 0;
+        background: var(--gb-lightest);
+        border: 2px solid var(--gb-darkest);
+        color: var(--gb-darkest);
+        cursor: pointer;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+        box-sizing: border-box;
+        font: inherit;
+      }
+      #fullscreen-btn:hover,
+      #fullscreen-btn:focus-visible {
+        background: var(--gb-light);
+        outline: none;
+      }
+      #fullscreen-btn:active {
+        background: var(--gb-dark);
+        color: var(--gb-lightest);
+      }
+      #fullscreen-btn svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        fill: currentColor;
+      }
+      #fullscreen-btn[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas">
+      Your browser does not support the canvas tag.
+    </canvas>
+
+    <!-- Fullscreen toggle. Four corner-bracket icon. Hidden by default;
+         the bootstrap script below reveals it iff the page is not running
+         as an installed PWA and not already in fullscreen. -->
+    <button id="fullscreen-btn" type="button" hidden aria-label="Enter fullscreen">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="0"  y="0"  width="6" height="2"/>
+        <rect x="0"  y="0"  width="2" height="6"/>
+        <rect x="10" y="0"  width="6" height="2"/>
+        <rect x="14" y="0"  width="2" height="6"/>
+        <rect x="0"  y="14" width="6" height="2"/>
+        <rect x="0"  y="10" width="2" height="6"/>
+        <rect x="10" y="14" width="6" height="2"/>
+        <rect x="14" y="10" width="2" height="6"/>
+      </svg>
+    </button>
+
+    <!-- POOPY-BIRDY-OS-SPLASH: unique marker so the build script and
+         tests can confirm the custom shell is the one being exported. -->
+    <div id="splash" role="status" aria-live="polite">
+      <img id="splash-image" src="splash.png" alt="poopy-birdy-os" />
+      <div id="splash-progress-track">
+        <div id="splash-progress-bar"></div>
+      </div>
+      <div id="splash-status">LOADING&hellip;</div>
+      <div id="splash-error">
+        <div id="splash-error-message">Couldn&rsquo;t start the game. Refresh to retry.</div>
+        <details>
+          <summary>Details</summary>
+          <pre id="splash-error-detail"></pre>
+        </details>
+      </div>
+    </div>
+
+    <script>
+      // Fullscreen-on-first-input: hide browser chrome when the player
+      // starts interacting. Best-effort — browsers that deny the request
+      // (notably iOS Safari in-tab) silently fall through; the PWA-install
+      // path provides standalone display for those cases.
+      (function () {
+        var triggered = false;
+        function tryFullscreen() {
+          if (triggered) return;
+          triggered = true;
+          var el = document.documentElement;
+          var fn = el.requestFullscreen || el.webkitRequestFullscreen;
+          if (fn) {
+            try { fn.call(el); } catch (e) { /* ignored */ }
+          }
+        }
+        window.addEventListener('pointerdown', tryFullscreen, { once: true, passive: true });
+        window.addEventListener('touchstart',  tryFullscreen, { once: true, passive: true });
+      })();
+
+      // Manual fullscreen toggle. Shows iff the page is not in PWA
+      // standalone mode and not already fullscreen; click to request
+      // fullscreen on the document element. Tracks fullscreenchange so
+      // the button reappears if the player exits via Esc / system gesture.
+      (function () {
+        var btn = document.getElementById('fullscreen-btn');
+        if (!btn) return;
+
+        function inStandalone() {
+          if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+          if (window.navigator && window.navigator.standalone === true) return true;
+          return false;
+        }
+        function inFullscreen() {
+          return !!(document.fullscreenElement || document.webkitFullscreenElement);
+        }
+        function refresh() {
+          btn.hidden = inStandalone() || inFullscreen();
+        }
+
+        btn.addEventListener('click', function () {
+          var el = document.documentElement;
+          var fn = el.requestFullscreen || el.webkitRequestFullscreen;
+          if (!fn) return;
+          try {
+            var p = fn.call(el);
+            if (p && typeof p.then === 'function') { p.then(refresh, function () {}); }
+          } catch (e) { /* ignored */ }
+        });
+
+        document.addEventListener('fullscreenchange', refresh);
+        document.addEventListener('webkitfullscreenchange', refresh);
+        refresh();
+      })();
+
+      // App service worker — precaches the build so the installed PWA
+      // boots offline after the first online visit. Registered at
+      // window.load so it doesn't contend with engine bootstrap, and
+      // behind a feature check + .catch so an unsupported environment
+      // or a transient failure logs a warning but never blocks the
+      // game from running. Coexists with coi-serviceworker (loaded
+      // synchronously in <head>) — that SW owns COOP/COEP injection,
+      // this one owns asset caching.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('sw.js').catch(function (err) {
+            console.warn('app sw registration failed:', err);
+          });
+        });
+      }
+    </script>
+
+    <script src="index.js"></script>
+    <script>
+      (function () {
+        const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":128816,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+
+        const splash = document.getElementById('splash');
+        const bar = document.getElementById('splash-progress-bar');
+        const status = document.getElementById('splash-status');
+        const errorDetail = document.getElementById('splash-error-detail');
+
+        let lastProgressAt = Date.now();
+        let started = false;
+        let failed = false;
+
+        function showError(message) {
+          if (started) return;
+          failed = true;
+          splash.classList.add('error');
+          status.textContent = '';
+          if (errorDetail && message) {
+            errorDetail.textContent = String(message);
+          }
+        }
+
+        // 30s without any progress signal => treat as failed start.
+        const STALL_TIMEOUT_MS = 30000;
+        const stallTimer = setInterval(function () {
+          if (started || failed) {
+            clearInterval(stallTimer);
+            return;
+          }
+          if (Date.now() - lastProgressAt > STALL_TIMEOUT_MS) {
+            clearInterval(stallTimer);
+            showError('No progress from the engine within ' + (STALL_TIMEOUT_MS / 1000) + ' seconds.');
+          }
+        }, 1000);
+
+        function onProgress(current, total) {
+          lastProgressAt = Date.now();
+          if (total > 0) {
+            const pct = Math.max(0, Math.min(100, Math.round((current / total) * 100)));
+            bar.style.width = pct + '%';
+            status.textContent = 'LOADING ' + pct + '%';
+          } else {
+            // Indeterminate — leave the bar where it is, just signal life.
+            status.textContent = 'LOADING\u2026';
+          }
+        }
+
+        function onPrintError() {
+          // Engine-reported error during startup. Surface it but don't
+          // abort if the engine ultimately recovers and resolves.
+          const msg = Array.prototype.join.call(arguments, ' ');
+          console.error(msg);
+          if (!started) showError(msg);
+        }
+
+        function hideSplash() {
+          started = true;
+          clearInterval(stallTimer);
+          splash.style.display = 'none';
+        }
+
+        if (typeof Engine !== 'function') {
+          showError('Engine loader did not initialise. Check that index.js loaded.');
+          return;
+        }
+
+        const engine = new Engine(GODOT_CONFIG);
+
+        engine.startGame({
+          'canvas': document.getElementById('canvas'),
+          'onProgress': onProgress,
+          'onPrintError': onPrintError,
+        }).then(hideSplash, function (err) {
+          showError(err && err.message ? err.message : err);
+        });
+      })();
+    </script>
+  </body>
+</html>
+
