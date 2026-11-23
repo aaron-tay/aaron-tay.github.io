@@ -34,6 +34,8 @@ body { margin: 0; overflow: hidden; background: var(--sheet); color: var(--ink);
 #labels, #toasts { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
 
 /* captions written on the painting */
+.stmark { position: absolute; left: 0; top: 0; pointer-events: none; font: italic 600 16px/1 var(--font-hand); color: var(--ink); white-space: nowrap; padding: 2px 4px 4px; text-shadow: 0 0 3px var(--paper, #f4efe4), 0 0 6px var(--paper, #f4efe4); }
+.stmark.small { font-size: 13px; font-weight: 500; }
 .stlabel { position: absolute; left: 0; top: 0; pointer-events: auto; font: 600 23px/1 var(--font-hand); color: var(--ink); background: none; border: 0; padding: 2px 4px 6px; cursor: pointer; white-space: nowrap;
   background-image: linear-gradient(transparent, transparent); }
 .stlabel::after { content: ""; position: absolute; left: 6%; right: 4%; bottom: 2px; height: 2px; border-radius: 2px; background: currentColor; opacity: 0.55; transform: rotate(-1.2deg); }
@@ -1250,15 +1252,16 @@ function makeKnifeHull() {
   return new HullShape(v, fixWinding(v, [[0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]]));
 }
 // irregular convex rock: a squashed sphere with a few random facets sliced off
-function makeRockHull(r, seed = 1, seg = 9, rings = 6) {
+// (round: a rounded boulder, as a stream or a slope rolls them, not a slab: hardly squashed, its corners only shaved)
+function makeRockHull(r, seed = 1, seg = 9, rings = 6, round = false) {
   let s = (seed * 2654435761) >>> 0 || 1;
   const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
   const base = makeUVSphereHull(r, seg, rings);
-  const sx = 1 + rnd() * 0.3, sy = 0.62 + rnd() * 0.3, sz = 0.9 + rnd() * 0.25;
+  const sx = 1 + rnd() * (round ? 0.08 : 0.3), sy = round ? 0.9 + rnd() * 0.08 : 0.62 + rnd() * 0.3, sz = 0.9 + rnd() * (round ? 0.1 : 0.25);
   let h = new HullShape(base.verts.map(v => new V3(v.x * sx, v.y * sy, v.z * sz)), base.faces.map(f => f.v), true);
   for (let i = 0; i < 6; i++) {
     const n = new V3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize();
-    const res = splitHull(h, n, r * (0.5 + rnd() * 0.32));
+    const res = splitHull(h, n, r * (round ? 0.85 + rnd() * 0.1 : 0.5 + rnd() * 0.32));
     if (res && res[1].volume > h.volume * 0.55) h = res[1];
   }
   return h;
@@ -5843,7 +5846,7 @@ class World {
     this.stepSnowBodies(dt);
     if ((this.frameNo & 3) === 0) this.stepSnowCaps(dt * 4);
     this.stepWeather(dt);
-    for (const st of STATIONS) if (st.tick && st.x !== undefined && this.stationNear(st)) st.tick(this, st, dt);   // (an experiment that keeps its own weather going, while you are there)
+    for (const st of STATIONS) if (st.tick && st.x !== undefined && (!this.builtStations || this.builtStations.has(st)) && this.stationNear(st)) st.tick(this, st, dt);   // (an experiment that keeps its own weather going, while you are there)
     if (this.gustLeft > 0 && (this.gustLeft -= dt) <= 0) this.gust = null;
     this.thermal(dt);
     if (Math.floor(this.time * 10) !== Math.floor((this.time - dt) * 10)) this.circuits();
@@ -10592,7 +10595,7 @@ function addBush(W, x, z, size, seed = 1) {
   }
 }
 function addRock(W, x, z, r, opts = {}) {
-  const shape = makeRockHull(r, Math.floor(x * 131 + z * 71 + r * 997));
+  const shape = makeRockHull(r, Math.floor(x * 131 + z * 71 + r * 997), 9, 6, !!opts.round);
   const gy = W.groundY(x, z);
   const b = W.addBody(shape, 'stone', { pos: new V3(x, gy + (shape.lmax.y - shape.lmin.y) * 0.5 - 0.01, z), rot: new Quat().setAxisAngle(0, 1, 0, x * 3.1 + z), sleep: opts.sleep !== false, label: opts.label || (r > 0.45 ? 'Boulder' : r > 0.16 ? 'Rock' : 'Stone') });
   if (opts.vel) { b.sleeping = false; AWOKEN.push(b); b.v.copy(opts.vel); }
@@ -14629,6 +14632,10 @@ const PLANT_SPECIES = {
   grasstree: { label: 'Grass tree', group: 'bush', r: 0.75, h: 2.1, burn: 30, mass: 10, sap: 0.5, ignite: 240, hot: 1.25, drag: 1.2, stiff: 0.6 },
 };
 const PLANT_KINDS = Object.keys(PLANT_SPECIES);
+// how wet a plant is (0 to 1), as a thing's wetness is the water on it, not in the soil it stands in: rain or a flood
+// having made the ground wetter than it usually is (t.damp: its own dampness, the soil of a valley or a creek bank
+// moist all the time). Taken as the ground's wetness alone, a plant on damp soil could never catch at all
+function plantWet(t, k) { return clamp((t.wet[k] - (t.damp ? Math.max(t.damp[k], 0.2) : 0.3)) * 2, 0, 1); }
 // how much there is of a plant to burn, in kg: its kind's, full grown at its usual size, by how big it is (and how far
 // grown, come up from seed)
 function plantMass(p) { const S = PLANT_SPECIES[p.sp], s = p.size * (p.grow ?? 1); return S.mass * s * s * s; }
@@ -14755,7 +14762,7 @@ Object.assign(World.prototype, {
         // and a spark or two coming off it, a thread of smoke, till there's nothing left but its ash (a few seconds for
         // a flower, longer the more there was of it)
         if (p.smoulder > 0) {
-          const M = plantMass(p), wet = t.water[k] > 0.01 || t.wet[k] > 0.6;
+          const M = plantMass(p), wet = t.water[k] > 0.01 || plantWet(t, k) > 0.6;
           p.smoulder -= dt4 / ((5 + 4 * Math.sqrt(M)) * (wet ? 0.3 : 1));
           const P = this.particles, sm = Math.max(0, p.smoulder), hh = p.h * (0.15 + 0.5 * sm);
           if (Math.random() < dt4 * (1 + Math.min(3, M)) * (0.4 + sm)) P.spawn(PK.ASH, p.x + rand(-p.r, p.r) * 0.6, p.y + hh * rand(0.3, 1), p.z + rand(-p.r, p.r) * 0.6, rand(-0.2, 0.2), rand(0.2, 0.7), rand(-0.2, 0.2), rand(2, 4), rand(0.03, 0.05), 20, 0.2);
@@ -14779,9 +14786,9 @@ Object.assign(World.prototype, {
         // it got (and may catch again, heated again). Burnt through: on to smoulder away
         if (p.flame > 0) {
           const M = plantMass(p), ig = S.ignite || MATERIALS.leaves.ignite;
-          if (t.water[k] > 0.01 || t.wet[k] > 0.35 || t.snow[k] > 0.05 || p.T < ig - 120) { p.flame -= dt4 * 2.5; if (p.flame <= 0) { p.flame = 0; p.out = true; } continue; }
+          if (t.water[k] > 0.01 || plantWet(t, k) > 0.7 || t.snow[k] > 0.05 || p.T < ig - 120) { p.flame -= dt4 * 2.5; if (p.flame <= 0) { p.flame = 0; p.out = true; } continue; }
           p.flame = Math.min(1, p.flame + dt4 * 0.5);
-          p.fuel -= dt4 * p.flame / (S.burn * clamp(Math.sqrt(M / S.mass), 0.35, 2.5) * (1 + 2.5 * Math.min(0.35, t.wet[k]) + 0.4 * p.sap));
+          p.fuel -= dt4 * p.flame / (S.burn * clamp(Math.sqrt(M / S.mass), 0.35, 2.5) * (1 + 2.5 * Math.min(0.35, plantWet(t, k)) + 0.4 * p.sap));
           p.burn = clamp(1 - p.fuel, 0.01, 1);
           if (t.grass[k] > 0.1 && !(t.burn[k] > 0) && t.lushCatch(k, dt4 * 0.3 * p.flame) && Math.random() < dt4 * 0.8 * p.flame) t.burn[k] = 0.15;
           if (Math.random() < dt4 * 0.5 * p.flame * Math.min(1.5, 0.4 + Math.sqrt(M)) * (this.smokeK || 1)) this.particles.spawn(PK.SMOKE, p.x, p.y + p.h * 0.7, p.z, 0, 0.5, 0, rand(2.5, 4), 0.18, rand(10, 30), 0.5);
@@ -14790,8 +14797,8 @@ Object.assign(World.prototype, {
         }
         // catching: hot enough for its kind, the sap in it (and the wet of the ground) putting that up; something left
         // of it to burn
-        const ig = (S.ignite || MATERIALS.leaves.ignite) * (1 + 0.5 * p.sap) * (1 + 1.5 * Math.min(1, t.wet[k] * 2));
-        if (p.T >= ig && t.wet[k] < 0.25 && t.water[k] < 0.01 && (p.fuel ?? 1) > 0.03) { p.flame = 0.15; p.fuel = p.fuel ?? 1; p.burn = Math.max(p.burn || 0, 0.01); p.out = false; }
+        const pw = plantWet(t, k), ig = (S.ignite || MATERIALS.leaves.ignite) * (1 + 0.5 * p.sap) * (1 + 1.5 * Math.min(1, pw * 2));
+        if (p.T >= ig && pw < 0.5 && t.water[k] < 0.01 && (p.fuel ?? 1) > 0.03) { p.flame = 0.15; p.fuel = p.fuel ?? 1; p.burn = Math.max(p.burn || 0, 0.01); p.out = false; }
       }
       if (gone) { t.plants = t.plants.filter(p => !p.gone); t.plantsVer = (t.plantsVer || 0) + 1; }
     }
@@ -14886,6 +14893,130 @@ Object.assign(World.prototype, {
   },
 });
 const PLANT_CELL = 1.5;   // (the plants' filing: in squares this wide)
+
+// ============================================================================
+// GROUND TYPES and PLANTS & BUSHES: two sampler experiments. The first lays the kinds of ground side by side, in
+// strips down a gentle slope (bare rock, soil, mud, sand, short grass, long grass, wildflowers), to set alight, roll
+// a boulder through or rain on and compare. The second is a garden of every plant there is: the flowers, the
+// Australian natives and the bushes, in beds, each kind at four ages (a seedling, young, grown and old), each one
+// grown from its own seed, so the colours it can come in show too.
+// (Each strip and bed is labelled: st.marks, drawn by the app beside the experiment's own label)
+// ============================================================================
+// both lie on a hillside rising away from you: near flat at the front, steepening to the back (this steep at the top),
+// so a boulder let go at the top gathers speed down it and rolls on through everything (on gentle ground a lumpy
+// boulder soon settles on a flat side)
+var SHOWCASE_TOP = 0.3, SHOWCASE_P = 1.5;
+// (the hill's height at z, for ground D long centred on oz; past the top it levels into a shelf)
+function showcaseHill(z, oz, D) { const u = clamp((z - (oz - D / 2)) / D, 0, 1.08); return SHOWCASE_TOP * D / SHOWCASE_P * Math.pow(Math.min(u, 1), SHOWCASE_P) + Math.max(0, u - 1) * D * 0.1; }
+const GROUND_STRIPS = [
+  { label: 'Bare rock', rock: 1 }, { label: 'Soil', dirt: 1 }, { label: 'Mud', dirt: 1, wet: 0.95 }, { label: 'Sand', sand: 1 },
+  { label: 'Short grass', dirt: 1, grass: 0.95 }, { label: 'Long grass', dirt: 1, grass: 1, lush: 0.9 }, { label: 'Wildflowers', dirt: 1, grass: 1, lush: 0.85, bloom: 0.8 },
+];
+STATIONS.push({
+  id: 'grounds', name: 'Ground Types', half: [15, 11], view: 40, pitch: 0.5, lookY: 1.6, yaw: -1.5708,
+  blurb: 'The kinds of ground side by side, in strips down a gentle slope: bare rock, soil, mud, sand, short grass, long grass and wildflowers. Set the near edge alight and watch which burn and how (long grass has to dry out first); roll a boulder down each strip; bring rain and see where it soaks in, where it runs off.',
+  build(W, ox, oz) {
+    const st = W.currentStation, n = GROUND_STRIPS.length, SW = 3.2, W0 = n * SW, D = 18;
+    // (the hill falls toward you, so rain runs off down it; the camera looks toward +z, so +x is on its left: the
+    // strips are laid from +x down, to read left to right)
+    const t = makePatch(W, ox, oz, W0 + 6, D + 4, 0.25, (t, k, x, z, u, v, edge) => {
+      const f = (ox + W0 / 2 - x) / SW, i = clamp(Math.floor(f), 0, n - 1), fr = f - Math.floor(f);
+      // (each strip's own, blending into the next across half a metre at the join)
+      const mixOf = key => { const a = GROUND_STRIPS[i][key] || 0, j = fr > 0.9 ? Math.min(n - 1, i + 1) : fr < 0.1 ? Math.max(0, i - 1) : i, b = GROUND_STRIPS[j][key] || 0, w = fr > 0.9 ? smooth(0.9, 1.1, fr) * 0.5 : fr < 0.1 ? smooth(0.1, -0.1, fr) * 0.5 : 0; return lerp(a, b, w); };
+      const base = 0.3 + showcaseHill(z, oz, D) + (noise2(x * 0.3, z * 0.3, 611) - 0.5) * 0.06;
+      const rk = mixOf('rock'), dt = mixOf('dirt'), sd = mixOf('sand');
+      t.rock[k] = base - 0.45 * (dt + sd) + 0.05 * rk; t.dirt[k] = 0.45 * dt; t.sand[k] = 0.45 * sd;
+      t.grass[k] = mixOf('grass') * edge; t.wet[k] = Math.max(0.2, mixOf('wet'));
+      t.k_lush = t.k_lush || [];
+      const lu = mixOf('lush') * edge, bl = mixOf('bloom');
+      if (lu > 0.02) t.k_lush.push([k, lu, bl]);
+    });
+    t.damp = Float32Array.from(t.wet).map(w => Math.min(w, 0.9));
+    t.airT0 = t.airT = 18; t.rh = 0.55; if (t.initAir) t.initAir();
+    t.ensureLush();
+    for (const [k, lu, bl] of t.k_lush) { t.lush[k] = t.lushT[k] = lu; t.bloom[k] = bl; }
+    t.k_lush = null; t.hasLush = true; t.lushVer++;
+    st.marks = GROUND_STRIPS.map((s, i) => ({ x: ox + W0 / 2 - (i + 0.5) * SW, z: oz - D / 2 + 1, y: 0.6, text: s.label }));
+    st.geo = { W0, D, SW };
+  },
+  actions: [
+    { label: 'Set the near edge alight', fn(W, st) {
+      const t = patchOf(W, st); if (!t) return;
+      // (a line of flame across every strip: what's there to burn takes it; long grass dried at once by it)
+      const z = st.z - st.geo.D / 2 + 2;
+      for (let x = st.x - st.geo.W0 / 2 + 0.3; x < st.x + st.geo.W0 / 2; x += 0.25) {
+        const k = t.cellAt(x, z); if (k < 0) continue;
+        if (t.lushDry && t.lush[k] > 0.15) t.lushDry[k] = 1;
+        if (t.grass[k] > 0.15 && t.wet[k] < 0.4) t.burn[k] = 0.4;
+      }
+      W.event('A line of flame along the near edge: grass takes it; long grass dries a moment, then roars; rock, soil, mud and sand don\'t burn');
+    } },
+    { label: 'Roll a boulder down each strip', fn(W, st) {
+      W.currentStation = st;
+      for (let i = 0; i < GROUND_STRIPS.length; i++) { const b = addRock(W, st.x + st.geo.W0 / 2 - (i + 0.5) * st.geo.SW, st.z + st.geo.D / 2 - 0.3, 0.45, { sleep: false, round: true, vel: new V3(0, 0, -2) }); b.x.y += 0.3; }
+      W.currentStation = null;
+    } },
+    { label: 'Bring rain', fn(W, st) { W.addCloud(st.x - 8, st.z, 2.4, 0.72); W.addCloud(st.x + 8, st.z, 2.4, 0.72); } },
+  ],
+});
+
+// the garden: every plant, by its group, each at four ages
+const FLORA_AGES = [{ label: 'seedling', grow: 0.25, big: 1 }, { label: 'young', grow: 0.6, big: 1 }, { label: 'grown', grow: 1, big: 1 }, { label: 'old', grow: 1, big: 1.4 }];
+const floraGroups = () => [['Flowers', PLANT_KINDS.filter(k => !PLANT_SPECIES[k].group)], ['Australian natives', PLANT_KINDS.filter(k => PLANT_SPECIES[k].group === 'native')], ['Bushes', PLANT_KINDS.filter(k => PLANT_SPECIES[k].group === 'bush')]];
+const floraColW = sp => Math.max(1.3, PLANT_SPECIES[sp].r * 2.5 + 0.3);
+STATIONS.push({
+  id: 'flora', name: 'Plants & Bushes', half: [12, 17], view: 22, pitch: 0.55, lookY: 2.3, yaw: -1.5,
+  blurb: 'A garden of every plant: the garden and meadow flowers at the front, the Australian natives behind them, the bushes at the back. Each kind is planted at four ages, a seedling in front to an old one behind, each from its own seed, so the colours a kind comes in show too. Set it alight to see how each burns, bring rain, or roll a boulder through.',
+  build(W, ox, oz) {
+    const st = W.currentStation, groups = floraGroups(), LBL = 1.2, PATH = 1.6;
+    // (each group a block: its kinds across, its four ages from front to back; a path of bare earth between blocks)
+    const rowD = L => Math.max(1.4, Math.max(...L.map(sp => PLANT_SPECIES[sp].r)) * 2.4);
+    const widthOf = L => L.reduce((s, sp) => s + floraColW(sp), 0);
+    const Wd = Math.max(...groups.map(([n, L]) => widthOf(L) + (n === 'Bushes' ? 2.6 : 0)));
+    const D = groups.reduce((a, [, L]) => a + LBL + 4 * rowD(L), 0) + PATH * (groups.length - 1);
+    const z00 = oz - D / 2, paths = [];
+    { let z = z00; groups.forEach(([, L], i) => { z += LBL + 4 * rowD(L); if (i < groups.length - 1) { paths.push([z + 0.2, z + PATH - 0.2]); z += PATH; } }); }
+    const t = makePatch(W, ox, oz, Wd + 6, D + 4, 0.3, (t, k, x, z, u, v, edge) => {
+      t.rock[k] = 0.25 + showcaseHill(z, oz, D) + (noise2(x * 0.2, z * 0.2, 621) - 0.5) * 0.08; t.dirt[k] = 0.4; t.sand[k] = 0;
+      t.grass[k] = paths.some(([a, b]) => z > a && z < b) ? 0 : 0.5 * edge;   // (thin turf, so the plants show; enough to carry a fire)
+      t.wet[k] = 0.2;
+    });
+    t.damp = Float32Array.from(t.wet); t.airT0 = t.airT = 19; t.rh = 0.55; if (t.initAir) t.initAir();
+    // (the camera looks toward +z, so +x is on its left: across a block, the kinds run from +x down, to read left to right)
+    const marks = []; let z = z00;
+    for (const [gname, L] of groups) {
+      const rd = rowD(L), w = widthOf(L) + (gname === 'Bushes' ? 2.6 : 0); let x = ox + w / 2;
+      marks.push({ x: ox + Wd / 2 + 1.4, z: z + LBL + 2 * rd, y: 1.6, text: gname });
+      const zr = j => z + LBL + (j + 0.5) * rd;
+      for (const sp of L) {
+        const cw = floraColW(sp), cx = x - cw / 2;
+        FLORA_AGES.forEach((a, j) => addPlant(W, cx + rand(-0.08, 0.08), zr(j) + rand(-0.1, 0.1), sp, +(a.big * rand(0.92, 1.06)).toFixed(3), (sp.length * 977 + j * 131 + cx * 7) | 0, rand(0, 6.28), a.grow < 1 ? { grow: a.grow } : null));
+        marks.push({ x: cx, z: z + LBL * 0.35, y: 0.2, text: PLANT_SPECIES[sp].label, small: true });
+        x -= cw;
+      }
+      if (gname === 'Bushes') {
+        // (the round bush, to compare: a cluster of leafy balls, at four sizes)
+        const cx = x - 1.3; [0.35, 0.55, 0.8, 1.05].forEach((s, j) => addBush(W, cx, zr(j), s, 3 + j));
+        marks.push({ x: cx, z: z + LBL * 0.35, y: 0.2, text: 'Round bush', small: true });
+      }
+      // (the ages, down the right-hand side of each block)
+      FLORA_AGES.forEach((a, j) => marks.push({ x: ox - Wd / 2 - 0.9, z: zr(j), y: 0.3, text: a.label, small: true }));
+      z += LBL + 4 * rd + PATH;
+    }
+    st.marks = marks; st.geo = { D, Wd };
+  },
+  actions: [
+    { label: 'Set the garden alight', fn(W, st) {
+      const t = patchOf(W, st); if (!t) return;
+      // (along the back, so it comes forward through the bushes, the natives, then the flowers)
+      const z = st.z + st.geo.D / 2 - 0.4;
+      for (let x = st.x - st.geo.Wd / 2 - 2; x < st.x + st.geo.Wd / 2 + 2; x += 0.3) { const k = t.cellAt(x, z); if (k >= 0 && t.grass[k] > 0.15) t.burn[k] = 0.4; }
+      W.event('Fire along the back of the garden: each plant has to dry out as it comes, the small ones quickest');
+    } },
+    { label: 'Bring rain', fn(W, st) { W.addCloud(st.x, st.z - 7, 2.6, 0.72); W.addCloud(st.x, st.z + 7, 2.6, 0.72); } },
+    { label: 'Roll a boulder through', fn(W, st) { W.currentStation = st; const b = addRock(W, st.x + rand(-5, 5), st.z + st.geo.D / 2 - 0.3, 0.5, { sleep: false, round: true, vel: new V3(rand(-0.3, 0.3), 0, -2) }); b.x.y += 0.3; W.currentStation = null; } },
+  ],
+});
 
 // ============================================================================
 // RENDERER: pen-and-watercolour illustration on paper (WebGL2 deferred NPR)
@@ -16205,12 +16336,13 @@ class Renderer {
   // ---------------------------------------------------------------- draw helpers
   // the panes of the glass boxes in sight, farthest first (so where one box's panes lie over another's, the nearer
   // one's edges are the ones inked). Not a thing in the world: nothing touches it, nothing breaks it
-  glassBoxes() {
+  glassBoxes(W) {
     const out = this._glass || (this._glass = []), E = this.eye, far = this.fade[1] * 1.3;
     let n = 0;
     if (typeof STATIONS === 'undefined') return out.slice(0, 0);
     STATIONS.forEach((st, si) => {
       const B = st.box; if (!B) return;
+      if (W && W.builtStations && !W.builtStations.has(st)) return;   // (one not set out yet: no glass. See loadStation)
       const dx = Math.max(0, B.x0 - E.x, E.x - B.x1), dz = Math.max(0, B.z0 - E.z, E.z - B.z1);
       if (hyp(dx, dz) > far) return;
       const cx = (B.x0 + B.x1) / 2, cz = (B.z0 + B.z1) / 2, hx = (B.x1 - B.x0) / 2, hz = (B.z1 - B.z0) / 2, y0 = Math.max(B.y0, -2), hy = (B.y1 - y0) / 2, cy = y0 + hy;
@@ -16522,7 +16654,7 @@ class Renderer {
       this.draw(this.cube, this.waterModel(w), [0.56, 0.76, 0.9], [0, 0, 0, w.elec], ZERO, 0, 3, i * 3.3);
     }
     gl.disable(gl.CULL_FACE);
-    const glass = this.glassBoxes();
+    const glass = this.glassBoxes(W);
     for (const g of glass) this.draw(this.panes[g.f], g.M, [0.62, 0.78, 0.86], NOFX, ZERO, 0, 14, g.si * 5 + g.f);
     for (let i = 0; i < W.waters.length; i++) this.drawSpill(W.waters[i], i);
     gl.enable(gl.CULL_FACE);
@@ -17769,6 +17901,9 @@ class Renderer {
     for (const L of [g.tv, g.wv, g.lv, g.walls, g.skin && g.skin.top, g.skin && g.skin.face]) if (L) { gl.deleteVertexArray(L.vao); L.bufs.forEach(b => gl.deleteBuffer(b)); }
     if (g.wdTex) { gl.deleteTexture(g.wdTex); g.wdTex = null; }
     gl.deleteBuffer(g.ib); gl.deleteVertexArray(g.gvao); gl.deleteBuffer(g.gbuf);
+    // (its long grass and its plants: see lushGL, plantGL)
+    if (g.lush) { for (const k of ['hTex', 'lTex', 'dTex']) if (g.lush[k]) gl.deleteTexture(g.lush[k]); g.lush = null; }
+    if (g.plants) { gl.deleteVertexArray(g.plants.vao); gl.deleteBuffer(g.plants.buf); gl.deleteTexture(g.plants.tex); g.plants = null; }
   }
   // overflow: a falling sheet on each outer wall face, and a thin skin of water over the top of the wall
   drawSpill(w, i) {
@@ -19438,10 +19573,33 @@ class App {
   togglePause() { this.paused = !this.paused; document.getElementById('btn-pause').textContent = this.paused ? 'Resume' : 'Pause'; document.getElementById('btn-pause').classList.toggle('on', this.paused); }
   toggleSlow() { this.setSpeed(this.speed < 1 ? 1 : 0.25); }   // (slow motion: a quarter of real time. The speeds: see setSpeed, in 07i_sbui)
   resetAll() {
-    this.W = this.expW = new World(); buildAll(this.W); this.W.eye = this.R.eye;
+    this.W = this.expW = new World(); this.W.builtStations = new Set(); this.W.eye = this.R.eye;
     this.R.clothGL.clear();
+    this.loadStation(this.current || STATIONS[0]);
+  }
+  // THE EXPERIMENTS ARE SET OUT ONE AT A TIME, AS YOU GO TO THEM: going to one (from the list, its label, or by
+  // wandering into its glass box) builds it, if it isn't already; one you've gone well away from is put away again,
+  // and built afresh when you come back. So only what you're at is held and run, however many there are
+  loadStation(st) {
+    const W = this.W; if (!W || !W.builtStations || !st) return;
+    if (!W.builtStations.has(st)) { buildStation(W, st); W.builtStations.add(st); if (W.updateDormancy) W.updateDormancy(true); }
+  }
+  unloadStation(st) {
+    const W = this.W; if (!W || !W.builtStations || !W.builtStations.has(st)) return;
+    clearStation(W, st); if (W.trees) W.trees = W.trees.filter(r => !r.trunk.removed);
+    W.builtStations.delete(st); if (this.R.clothGL && this.R.clothGL.prune) this.R.clothGL.prune();
+  }
+  // (twice a second, on the experiments' page: the one you're in set out; those you're well away from put away)
+  stationsTick() {
+    const W = this.W; if (this.screen !== 'experiments' || !W || !W.builtStations) return;
+    const now = performance.now(); if (now - (this._stT || 0) < 500) return; this._stT = now;
+    const x = this.cam.target.x, z = this.cam.target.z, goal = this.camGoal ? this.camGoal.target : null;
+    const near = (st, m) => { const B = st.box; return B && x > B.x0 - m && x < B.x1 + m && z > B.z0 - m && z < B.z1 + m; };
+    if (!goal) for (const st of STATIONS) if (near(st, 0) && !W.builtStations.has(st)) { this.loadStation(st); this.current = st; break; }
+    for (const st of [...W.builtStations]) if (st !== this.current && !near(st, 25) && !(goal && goal === st)) this.unloadStation(st);
   }
   focusStation(st, instant) {
+    this.loadStation(st);
     const p = stationPos(st);
     const g = { target: new V3(p.x, st.lookY ?? 0.8, p.z), dist: st.view ? st.view * 1.1 : st.id === 'stress' ? 16 : st.id === 'campfire' || st.id === 'furnace' || st.id === 'guillotine' || st.id === 'circuit' ? 7.6 : 9.8, yaw: st.yaw ?? 1.15, pitch: st.pitch ?? 0.42 };
     if (instant) Object.assign(this.cam, g); else this.camGoal = g;
@@ -19920,12 +20078,32 @@ class App {
       if (s.t <= 0) this.slash = null;
     }
   }
+  // the labels an experiment puts on its own parts (st.marks: the strips of ground, the plants' beds), for the one
+  // you're at, near enough to read
+  drawMarks() {
+    const box = document.getElementById('labels'), st = this.current, W = this.W;
+    const on = st && st.marks && W && W.builtStations && W.builtStations.has(st) ? st : null;
+    if (this._marksFor !== on) {
+      for (const e of this._markEls || []) e.remove();
+      this._markEls = on ? on.marks.map(m => { const e = document.createElement('span'); e.className = 'stmark' + (m.small ? ' small' : ''); e.textContent = m.text; box.appendChild(e); return e; }) : [];
+      this._marksFor = on;
+    }
+    if (!on) return;
+    on.marks.forEach((m, i) => {
+      const e = this._markEls[i], P = new V3(m.x, W.groundY(m.x, m.z) + (m.y || 0.3), m.z), p = this.R.project(P), d = this.R.eye.dist(P);
+      if (!p || d > (m.small ? 30 : 60) || p.x < -50 || p.x > this.R.cssW + 50) { e.hidden = true; return; }
+      e.hidden = false; e.style.transform = `translate(${p.x.toFixed(0)}px, ${p.y.toFixed(0)}px) translate(-50%, -100%)`;
+      e.style.opacity = (1 - smooth(m.small ? 18 : 40, m.small ? 30 : 60, d)).toFixed(2);
+    });
+  }
   updateHUD() {
     const W = this.W;
     // station labels
+    if (this.screen === 'experiments') this.stationsTick();
+    if (this.screen === 'experiments') this.drawMarks();
     if (this.screen === 'experiments') for (const st of STATIONS) {
-      const p = this.R.project(new V3(st.x, 4.2, st.z - 0.5)); const e = st.labelEl;
-      const d = this.R.eye.dist(new V3(st.x, 0, st.z));
+      const sp = stationPos(st), p = this.R.project(new V3(sp.x, 4.2, sp.z - 0.5)); const e = st.labelEl;
+      const d = this.R.eye.dist(new V3(sp.x, 0, sp.z));
       if (!p || d > 75 || p.x < -50 || p.x > this.R.cssW + 50) { e.hidden = true; continue; }
       e.hidden = false; e.style.transform = `translate(${p.x.toFixed(0)}px, ${p.y.toFixed(0)}px) translate(-50%, -100%)`;
       e.style.opacity = d < 9 ? 0.25 : 1;
@@ -21134,8 +21312,9 @@ Object.assign(App.prototype, {
     document.body.style.cursor = 'progress';
     setTimeout(() => {
       try {
-        const W = this.expW = new World();
-        buildAll(W); W.eye = this.R.eye;   // (the world knows where you're looking from: trees near you are simulated)
+        // (the experiments set out one at a time, as you go to them: see loadStation. Only the first, now)
+        const W = this.expW = new World(); W.builtStations = new Set();
+        W.eye = this.R.eye;   // (the world knows where you're looking from: trees near you are simulated)
         // (looking at the first experiment: the view kept for when the page opens, not put on whatever page you're on)
         const was = this.W, cam = { target: this.cam.target.clone(), yaw: this.cam.yaw, pitch: this.cam.pitch, dist: this.cam.dist };
         this.W = W; this.focusStation(STATIONS[0], true);
